@@ -1040,7 +1040,8 @@ function dn_burst_dash_render_page() {
 			Product base: <code><?php echo esc_html( $data['paths']['product_base'] ); ?></code><br>
 			<strong>Lưu ý:</strong> các card như Visits / Add To Cart / Checkout / Add Payment Info lấy từ Burst page visits.
 			Các card Orders/AOV, Items/AOI, Pending Payment, Sales, Paid/Balance... lấy từ WooCommerce orders.
-			Created Campaigns hiện đang để 0 vì snippet này chưa nối sang nguồn campaign riêng.
+			Created Campaigns hiện đang để 0 vì snippet này chưa nối sang nguồn campaign riêng.<br>
+        @2026
 		</div>
 	</div>
 	<?php
