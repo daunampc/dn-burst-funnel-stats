@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'DN_BURST_FUNNEL_STATS_VERSION', '1.0.0' );
+define( 'DN_BURST_FUNNEL_STATS_VERSION', '1.0.1' );
 define( 'DN_BURST_FUNNEL_STATS_FILE', __FILE__ );
 define( 'DN_BURST_FUNNEL_STATS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'DN_BURST_FUNNEL_STATS_URL', plugin_dir_url( __FILE__ ) );
@@ -28,7 +28,7 @@ define( 'DN_BURST_FUNNEL_STATS_URL', plugin_dir_url( __FILE__ ) );
 /**
  * Change this to your real GitHub repository in owner/repo format.
  */
-define( 'DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats.git' );
+define( 'DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats' );
 
 define( 'DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
