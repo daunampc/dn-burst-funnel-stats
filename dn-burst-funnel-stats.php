@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: DN Burst Funnel Stats
- * Plugin URI: https://github.com/toshstack-dev/dn-burst-funnel-stats
+ * Plugin URI: https://github.com/daunampc/dn-burst-funnel-stats.git
  * Description: Funnel dashboard for WooCommerce using Burst Statistics page visit data and WooCommerce order metrics.
  * Version: 1.0.0
  * Author: toshstack.dev
@@ -13,7 +13,7 @@
  * Domain Path: /languages
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
- * Update URI: https://github.com/toshstack-dev/dn-burst-funnel-stats
+ * Update URI: https://github.com/daunampc/dn-burst-funnel-stats 
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -27,9 +27,8 @@ define( 'DN_BURST_FUNNEL_STATS_URL', plugin_dir_url( __FILE__ ) );
 
 /**
  * Change this to your real GitHub repository in owner/repo format.
- * Example: define( 'DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'toshstack-dev/dn-burst-funnel-stats' );
  */
-define( 'DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'toshstack-dev/dn-burst-funnel-stats' );
+define( 'DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats.git' );
 
 define( 'DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
