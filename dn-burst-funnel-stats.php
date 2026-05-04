@@ -8,7 +8,7 @@
  * Author URI: https://toshstack.dev
  * Requires at least: 6.5
  * Requires PHP: 7.4
- * Requires Plugins: burst-statistics, woocommerce
+ * Requires Plugins: woocommerce
  * Text Domain: dn-burst-funnel-stats
  * Domain Path: /languages
  * License: GPL-2.0-or-later
