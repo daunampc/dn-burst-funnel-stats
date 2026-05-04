@@ -3,7 +3,7 @@
  * Plugin Name: DN Burst Funnel Stats
  * Plugin URI: https://github.com/daunampc/dn-burst-funnel-stats.git
  * Description: Funnel dashboard for WooCommerce using Burst Statistics page visit data and WooCommerce order metrics.
- * Version: 1.0.2
+ * Version: 1.0.3
  * Author: toshstack.dev
  * Author URI: https://toshstack.dev
  * Requires at least: 6.5
@@ -34,8 +34,19 @@ define( 'DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
 function dn_burst_funnel_stats_dependency_plugins() {
 	return array(
-		'burst-statistics/burst.php' => 'Burst Statistics',
-		'woocommerce/woocommerce.php' => 'WooCommerce',
+		'burst' => array(
+			'name'    => 'Burst Statistics or Burst Pro',
+			'plugins' => array(
+				'burst-statistics/burst.php',
+				'burst-pro/burst.php',
+			),
+		),
+		'woocommerce' => array(
+			'name'    => 'WooCommerce',
+			'plugins' => array(
+				'woocommerce/woocommerce.php',
+			),
+		),
 	);
 }
 
@@ -45,9 +56,19 @@ function dn_burst_funnel_stats_missing_dependencies() {
 	}
 
 	$missing = array();
-	foreach ( dn_burst_funnel_stats_dependency_plugins() as $plugin_file => $plugin_name ) {
-		if ( ! is_plugin_active( $plugin_file ) ) {
-			$missing[] = $plugin_name;
+
+	foreach ( dn_burst_funnel_stats_dependency_plugins() as $dependency ) {
+		$is_active = false;
+
+		foreach ( $dependency['plugins'] as $plugin_file ) {
+			if ( is_plugin_active( $plugin_file ) ) {
+				$is_active = true;
+				break;
+			}
+		}
+
+		if ( ! $is_active ) {
+			$missing[] = $dependency['name'];
 		}
 	}
 
