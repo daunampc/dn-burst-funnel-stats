@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'DN_BURST_FUNNEL_STATS_VERSION', '1.0.3' );
+define( 'DN_BURST_FUNNEL_STATS_VERSION', '1.0.5' );
 define( 'DN_BURST_FUNNEL_STATS_FILE', __FILE__ );
 define( 'DN_BURST_FUNNEL_STATS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'DN_BURST_FUNNEL_STATS_URL', plugin_dir_url( __FILE__ ) );
