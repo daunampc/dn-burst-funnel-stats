@@ -95,6 +95,94 @@ function dn_burst_dash_get_atc_dedupe_key( $product_id ) {
 	return 'dn_atc_seen_' . absint( $product_id ) . '_' . dn_burst_dash_get_visitor_key();
 }
 
+
+function dn_burst_dash_is_bot_request() {
+	$ua = isset( $_SERVER['HTTP_USER_AGENT'] )
+		? strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) )
+		: '';
+
+	if ( '' === $ua ) {
+		return true;
+	}
+
+	$bot_patterns = array(
+		'bot',
+		'crawl',
+		'spider',
+		'slurp',
+		'mediapartners',
+		'facebookexternalhit',
+		'facebot',
+		'whatsapp',
+		'telegrambot',
+		'twitterbot',
+		'linkedinbot',
+		'pinterest',
+		'preview',
+		'monitor',
+		'uptime',
+		'pingdom',
+		'gtmetrix',
+		'pagespeed',
+		'lighthouse',
+		'cache',
+		'preload',
+		'python-requests',
+		'curl',
+		'wget',
+		'httpclient',
+		'axios',
+		'guzzlehttp',
+	);
+
+	foreach ( $bot_patterns as $pattern ) {
+		if ( false !== strpos( $ua, $pattern ) ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function dn_burst_dash_is_bad_atc_request() {
+	if ( is_admin() || wp_doing_cron() || wp_doing_ajax() ) {
+		return true;
+	}
+
+	if ( dn_burst_dash_is_bot_request() ) {
+		return true;
+	}
+
+	$method = isset( $_SERVER['REQUEST_METHOD'] )
+		? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) )
+		: '';
+
+	// Chỉ tính add-to-cart từ POST. Bot hay spam thường gọi GET ?add-to-cart=ID.
+	if ( 'POST' !== $method ) {
+		return true;
+	}
+
+	return false;
+}
+
+function dn_burst_dash_atc_rate_limited( $ip ) {
+	if ( empty( $ip ) || 'unknown' === $ip ) {
+		return true;
+	}
+
+	$key   = 'dn_atc_rate_' . md5( $ip );
+	$count = (int) get_transient( $key );
+
+	// Tối đa 5 add-to-cart / IP / phút.
+	if ( $count >= 5 ) {
+		return true;
+	}
+
+	set_transient( $key, $count + 1, MINUTE_IN_SECONDS );
+
+	return false;
+}
+
 add_action( 'woocommerce_add_to_cart', function(
 	$cart_item_key,
 	$product_id,
@@ -104,15 +192,24 @@ add_action( 'woocommerce_add_to_cart', function(
 	$cart_item_data
 ) {
 	$client_ip = dn_burst_dash_get_client_ip();
+
 	if ( dn_burst_dash_is_ignored_ip( $client_ip ) ) {
 		return;
 	}
+
+	if ( dn_burst_dash_is_bad_atc_request() ) {
+		return;
+	}
+
+	if ( dn_burst_dash_atc_rate_limited( $client_ip ) ) {
+		return;
+	}
+
 	$target_product_id = $variation_id ? $variation_id : $product_id;
 
 	$dedupe_key = dn_burst_dash_get_atc_dedupe_key( $target_product_id );
 	$already_tracked = get_transient( $dedupe_key );
-	
-	
+
 	if ( false !== $already_tracked ) {
 		return;
 	}
@@ -127,13 +224,9 @@ add_action( 'woocommerce_add_to_cart', function(
 	$current_hits = (int) get_option( $hits_key, 0 );
 	$current_qty  = (int) get_option( $qty_key, 0 );
 
-	// Chỉ cộng 1 event cho sản phẩm này, dù click bao nhiêu lần
 	update_option( $hits_key, $current_hits + 1, false );
-
-	// Nếu bạn muốn quantity cũng chỉ ghi 1 thì để +1
 	update_option( $qty_key, $current_qty + 1, false );
 
-	// Đánh dấu đã ghi nhận sản phẩm này cho visitor này
 	set_transient( $dedupe_key, 1, DAY_IN_SECONDS );
 }, 10, 6 );
 
