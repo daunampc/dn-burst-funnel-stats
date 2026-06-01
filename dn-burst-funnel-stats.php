@@ -3,7 +3,7 @@
  * Plugin Name: DN Burst Funnel Stats
  * Plugin URI: https://github.com/daunampc/dn-burst-funnel-stats.git
  * Description: Funnel dashboard for WooCommerce using Burst Pro page visit data and WooCommerce order metrics.
- * Version: 1.0.4
+ * Version: 1.0.5
  * Author: toshstack.dev
  * Author URI: https://toshstack.dev
  * Requires at least: 6.5
