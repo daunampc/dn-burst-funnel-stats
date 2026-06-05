@@ -145,7 +145,7 @@ function dn_burst_dash_is_bot_request() {
 }
 
 function dn_burst_dash_is_bad_atc_request() {
-	if ( is_admin() || wp_doing_cron() || wp_doing_ajax() ) {
+	if ( wp_doing_cron() ) {
 		return true;
 	}
 
@@ -157,12 +157,35 @@ function dn_burst_dash_is_bad_atc_request() {
 		? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) )
 		: '';
 
-	// Chỉ tính add-to-cart từ POST. Bot hay spam thường gọi GET ?add-to-cart=ID.
+	// Chỉ tính POST để tránh bot/spam GET ?add-to-cart=ID.
 	if ( 'POST' !== $method ) {
 		return true;
 	}
 
-	return false;
+	// Cho phép WooCommerce AJAX add to cart.
+	$wc_ajax = isset( $_GET['wc-ajax'] )
+		? sanitize_key( wp_unslash( $_GET['wc-ajax'] ) )
+		: '';
+
+	if ( 'add_to_cart' === $wc_ajax ) {
+		return false;
+	}
+
+	// Cho phép non-admin frontend request.
+	if ( ! is_admin() ) {
+		return false;
+	}
+
+	// Nếu đang admin-ajax thì chỉ cho qua action add_to_cart hợp lệ.
+	$action = isset( $_REQUEST['action'] )
+		? sanitize_key( wp_unslash( $_REQUEST['action'] ) )
+		: '';
+
+	if ( wp_doing_ajax() && in_array( $action, array( 'woocommerce_add_to_cart', 'add_to_cart' ), true ) ) {
+		return false;
+	}
+
+	return true;
 }
 
 function dn_burst_dash_atc_rate_limited( $ip ) {
@@ -225,7 +248,7 @@ add_action( 'woocommerce_add_to_cart', function(
 	$current_qty  = (int) get_option( $qty_key, 0 );
 
 	update_option( $hits_key, $current_hits + 1, false );
-	update_option( $qty_key, $current_qty + 1, false );
+	update_option( $qty_key, $current_qty + max( 1, absint( $quantity ) ), false );
 
 	set_transient( $dedupe_key, 1, DAY_IN_SECONDS );
 }, 10, 6 );
@@ -1139,3 +1162,4 @@ function dn_burst_dash_render_page() {
 	</div>
 	<?php
 }
+
