@@ -332,16 +332,47 @@ function dn_burst_dash_get_wc_paths() {
 		$checkout_url  = wc_get_checkout_url();
 		$checkout_path = wp_parse_url( $checkout_url, PHP_URL_PATH ) ?: $checkout_path;
 	}
+
+	$product_bases = array();
+
 	$permalinks = function_exists( 'wc_get_permalink_structure' ) ? wc_get_permalink_structure() : array();
 	if ( ! empty( $permalinks['product_rewrite_slug'] ) ) {
 		$product_base = '/' . trim( $permalinks['product_rewrite_slug'], '/' );
+		$product_bases[] = $product_base;
 	}
 
+	$product_bases[] = '/product';
+	$product_bases[] = '/products';
+	$product_bases[] = '/shop';
+	$product_bases[] = '/san-pham';
+
+	$sample_products = get_posts( array(
+		'post_type'      => 'product',
+		'post_status'    => 'publish',
+		'posts_per_page' => 5,
+		'fields'         => 'ids',
+	) );
+
+	foreach ( $sample_products as $product_id ) {
+		$url  = get_permalink( $product_id );
+		$path = wp_parse_url( $url, PHP_URL_PATH );
+
+		if ( ! empty( $path ) ) {
+			$parts = explode( '/', trim( $path, '/' ) );
+			if ( ! empty( $parts[0] ) ) {
+				$product_bases[] = '/' . $parts[0];
+			}
+		}
+	}
+
+	$product_bases = array_values( array_unique( array_filter( array_map( 'untrailingslashit', $product_bases ) ) ) );
+
 	return array(
-		'cart'      => untrailingslashit( $cart_path ),
-		'checkout'  => untrailingslashit( $checkout_path ),
-		'order_pay' => '/order-pay',
-		'product_base' => untrailingslashit( $product_base ),
+		'cart'          => untrailingslashit( $cart_path ),
+		'checkout'      => untrailingslashit( $checkout_path ),
+		'order_pay'     => '/order-pay',
+		'product_base'  => untrailingslashit( $product_base ),
+		'product_bases' => $product_bases,
 	);
 }
 
@@ -460,13 +491,29 @@ function dn_burst_dash_get_burst_period_stats( $start, $end ) {
 	$paths = dn_burst_dash_get_wc_paths();
 
 	$all = dn_burst_dash_burst_query_block( $start, $end );
-	list( $product_like_a, $product_like_b ) = dn_burst_dash_like_path_sql( $paths['product_base'] );
-	$product_visits = dn_burst_dash_burst_query_block(
-		$start,
-		$end,
-		' AND (page_url LIKE %s OR page_url LIKE %s)',
-		array( $product_like_a, $product_like_b )
-	);
+	$product_where_parts = array();
+    $product_params      = array();
+    
+    $product_bases = isset( $paths['product_bases'] ) && is_array( $paths['product_bases'] )
+    	? $paths['product_bases']
+    	: array( $paths['product_base'] );
+    
+    foreach ( $product_bases as $base ) {
+    	list( $like_a, $like_b ) = dn_burst_dash_like_path_sql( $base );
+    
+    	$product_where_parts[] = 'page_url LIKE %s';
+    	$product_params[]      = $like_a;
+    
+    	$product_where_parts[] = 'page_url LIKE %s';
+    	$product_params[]      = $like_b;
+    }
+    
+    $product_visits = dn_burst_dash_burst_query_block(
+    	$start,
+    	$end,
+    	' AND (' . implode( ' OR ', $product_where_parts ) . ')',
+    	$product_params
+    );
 
 	list( $cart_like_a, $cart_like_b ) = dn_burst_dash_like_path_sql( $paths['cart'] );
 	$cart = dn_burst_dash_burst_query_block(
@@ -1162,4 +1209,5 @@ function dn_burst_dash_render_page() {
 	</div>
 	<?php
 }
+
 
