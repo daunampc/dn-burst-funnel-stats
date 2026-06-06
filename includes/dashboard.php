@@ -12,17 +12,78 @@ function dn_burst_dash_get_sales_orders_for_period( $start, $end ) {
 	);
 }
 
-function dn_burst_dash_get_cache_key( $prefix, $range = null ) {
+function dn_burst_dash_get_data_last_changed() {
+	$last_changed = get_option( 'dn_bfs_data_last_changed', '1' );
+
+	return is_scalar( $last_changed ) ? (string) $last_changed : '1';
+}
+
+function dn_burst_dash_touch_data_changed() {
+	update_option( 'dn_bfs_data_last_changed', sprintf( '%.6F', microtime( true ) ), false );
+}
+
+function dn_burst_dash_get_cache_version() {
+	return dn_burst_dash_get_data_last_changed();
+}
+
+function dn_burst_dash_bump_cache_version() {
+	dn_burst_dash_touch_data_changed();
+}
+
+function dn_burst_dash_send_nocache_headers() {
+	if ( headers_sent() ) {
+		return;
+	}
+
+	nocache_headers();
+	header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
+	header( 'Pragma: no-cache' );
+}
+
+function dn_burst_dash_get_cache_key( $prefix, $range = null, $extra = array() ) {
 	$range = is_array( $range ) ? $range : dn_burst_dash_get_range_data();
+	$extra = is_array( $extra ) ? $extra : array();
 
 	return 'dn_bfs_' . sanitize_key( $prefix ) . '_' . md5( wp_json_encode( array(
-		$range['period'],
-		$range['compare'],
-		$range['current_start'],
-		$range['current_end'],
-		$range['previous_start'],
-		$range['previous_end'],
+		'period'            => $range['period'],
+		'compare'           => $range['compare'],
+		'current_start'     => $range['current_start'],
+		'current_end'       => $range['current_end'],
+		'previous_start'    => $range['previous_start'],
+		'previous_end'      => $range['previous_end'],
+		'data_last_changed' => dn_burst_dash_get_data_last_changed(),
+		'extra'             => $extra,
 	) ) );
+}
+
+function dn_burst_dash_wrap_cache_payload( $payload ) {
+	return array(
+		'generated_at'       => microtime( true ),
+		'data_last_changed' => dn_burst_dash_get_data_last_changed(),
+		'payload'            => $payload,
+	);
+}
+
+function dn_burst_dash_get_cached_payload( $cache_key, $ttl = 300 ) {
+	$cached = get_transient( $cache_key );
+
+	if ( ! is_array( $cached ) || ! array_key_exists( 'payload', $cached ) ) {
+		return false;
+	}
+
+	$generated_at       = isset( $cached['generated_at'] ) ? (float) $cached['generated_at'] : 0;
+	$cached_last_change = isset( $cached['data_last_changed'] ) ? (string) $cached['data_last_changed'] : '';
+	$current_changed    = dn_burst_dash_get_data_last_changed();
+
+	if ( $cached_last_change !== $current_changed ) {
+		return false;
+	}
+
+	if ( $ttl > 0 && $generated_at > 0 && ( microtime( true ) - $generated_at ) > $ttl ) {
+		return false;
+	}
+
+	return $cached['payload'];
 }
 
 function dn_burst_dash_clear_dashboard_cache() {
@@ -42,6 +103,7 @@ function dn_burst_dash_touch_refresh_time() {
 }
 
 function dn_burst_dash_refresh_dashboard_cache() {
+	dn_burst_dash_touch_data_changed();
 	dn_burst_dash_clear_dashboard_cache();
 	dn_burst_dash_build_data();
 	dn_burst_dash_get_chart_data( dn_burst_dash_get_range_data() );
@@ -281,6 +343,7 @@ add_action( 'woocommerce_add_to_cart', function(
 	update_option( $hits_key, $current_hits + 1, false );
 	update_option( $qty_key, $current_qty + max( 1, absint( $quantity ) ), false );
 	dn_burst_dash_record_atc_url_groups( $date_key, $quantity );
+	dn_burst_dash_touch_data_changed();
 
 	set_transient( $dedupe_key, 1, DAY_IN_SECONDS );
 }, 10, 6 );
@@ -737,9 +800,9 @@ function dn_burst_dash_get_wc_period_stats( $start, $end ) {
 function dn_burst_dash_build_data() {
 	$range = dn_burst_dash_get_range_data();
 	$cache_key = dn_burst_dash_get_cache_key( 'dash', $range );
-	$cached    = get_transient( $cache_key );
+	$cached    = dn_burst_dash_get_cached_payload( $cache_key, 5 * MINUTE_IN_SECONDS );
 
-	if ( is_array( $cached ) ) {
+	if ( false !== $cached ) {
 		return $cached;
 	}
 
@@ -928,7 +991,7 @@ function dn_burst_dash_build_data() {
 		),
 	);
 
-	set_transient( $cache_key, $data, 10 * MINUTE_IN_SECONDS );
+	set_transient( $cache_key, dn_burst_dash_wrap_cache_payload( $data ), 5 * MINUTE_IN_SECONDS );
 
 	return $data;
 }
@@ -1632,9 +1695,9 @@ function dn_burst_dash_get_daily_order_stats( $range ) {
 function dn_burst_dash_get_chart_data( $range = null ) {
 	$range     = is_array( $range ) ? $range : dn_burst_dash_get_range_data();
 	$cache_key = dn_burst_dash_get_cache_key( 'charts', $range );
-	$cached    = get_transient( $cache_key );
+	$cached    = dn_burst_dash_get_cached_payload( $cache_key, 5 * MINUTE_IN_SECONDS );
 
-	if ( is_array( $cached ) ) {
+	if ( false !== $cached ) {
 		return $cached;
 	}
 
@@ -1701,7 +1764,7 @@ function dn_burst_dash_get_chart_data( $range = null ) {
 		),
 	);
 
-	set_transient( $cache_key, $chart_data, 10 * MINUTE_IN_SECONDS );
+	set_transient( $cache_key, dn_burst_dash_wrap_cache_payload( $chart_data ), 5 * MINUTE_IN_SECONDS );
 
 	return $chart_data;
 }
@@ -1726,9 +1789,9 @@ function dn_burst_dash_render_charts( $range ) {
 	?>
 	<div class="dn-burst-chart-grid">
 		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Sales / Orders', 'dn-burst-funnel-stats' ), 'sales', $chart_data['sales'] + array( 'labels' => $chart_data['labels'] ) ); ?>
-		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Funnel', 'dn-burst-funnel-stats' ), 'bar', $chart_data['funnel'] ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Funnel', 'dn-burst-funnel-stats' ), 'line', $chart_data['funnel'] ); ?>
 		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Conversion Rate', 'dn-burst-funnel-stats' ), 'line', $chart_data['conversion'] ); ?>
-		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Top Campaigns by Sales', 'dn-burst-funnel-stats' ), 'bar', $chart_data['topUrls'] ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Top Campaigns by Sales', 'dn-burst-funnel-stats' ), 'line', $chart_data['topUrls'] ); ?>
 	</div>
 	<?php
 }
@@ -1916,6 +1979,9 @@ function dn_burst_dash_render_tab_content( $tab, $range = null ) {
  */
 
 function dn_burst_dash_render_page() {
+	dn_burst_dash_send_nocache_headers();
+	dn_burst_dash_touch_data_changed();
+
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}
@@ -1951,6 +2017,9 @@ function dn_burst_dash_render_page() {
 }
 
 function dn_burst_dash_render_url_tracking_page() {
+	dn_burst_dash_send_nocache_headers();
+	dn_burst_dash_touch_data_changed();
+
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}

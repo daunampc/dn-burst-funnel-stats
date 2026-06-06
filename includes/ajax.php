@@ -47,6 +47,20 @@ function dn_burst_funnel_stats_maybe_send_ajax_error( $validation ) {
 	);
 }
 
+
+function dn_burst_funnel_stats_send_ajax_nocache_headers() {
+	if ( function_exists( 'dn_burst_dash_send_nocache_headers' ) ) {
+		dn_burst_dash_send_nocache_headers();
+		return;
+	}
+
+	if ( ! headers_sent() ) {
+		nocache_headers();
+		header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
+		header( 'Pragma: no-cache' );
+	}
+}
+
 function dn_burst_funnel_stats_get_post_value( $key, $default = '' ) {
 	if ( ! isset( $_POST[ $key ] ) || is_array( $_POST[ $key ] ) ) {
 		return $default;
@@ -82,6 +96,8 @@ function dn_burst_funnel_stats_ajax_apply_date_request() {
  * @return void
  */
 function dn_burst_funnel_stats_ajax_load_tab() {
+	dn_burst_funnel_stats_send_ajax_nocache_headers();
+
 	$validation = dn_burst_funnel_stats_validate_ajax_request();
 	dn_burst_funnel_stats_maybe_send_ajax_error( $validation );
 
@@ -109,6 +125,8 @@ add_action( 'wp_ajax_dn_burst_funnel_stats_load_tab', 'dn_burst_funnel_stats_aja
  * @return void
  */
 function dn_burst_funnel_stats_ajax_url_tracking() {
+	dn_burst_funnel_stats_send_ajax_nocache_headers();
+
 	$validation = dn_burst_funnel_stats_validate_ajax_request();
 	dn_burst_funnel_stats_maybe_send_ajax_error( $validation );
 
@@ -145,6 +163,8 @@ add_action( 'wp_ajax_dn_burst_funnel_stats_url_tracking', 'dn_burst_funnel_stats
  * @return void
  */
 function dn_burst_funnel_stats_ajax_update_now() {
+	dn_burst_funnel_stats_send_ajax_nocache_headers();
+
 	$validation = dn_burst_funnel_stats_validate_ajax_request();
 	dn_burst_funnel_stats_maybe_send_ajax_error( $validation );
 	dn_burst_funnel_stats_ajax_apply_date_request();

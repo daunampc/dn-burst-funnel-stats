@@ -46,6 +46,24 @@ function dn_burst_funnel_stats_is_admin_page() {
 	return in_array( $page, dn_burst_funnel_stats_admin_pages(), true );
 }
 
+function dn_burst_funnel_stats_admin_nocache_headers() {
+	if ( ! dn_burst_funnel_stats_is_admin_page() ) {
+		return;
+	}
+
+	if ( function_exists( 'dn_burst_dash_send_nocache_headers' ) ) {
+		dn_burst_dash_send_nocache_headers();
+		return;
+	}
+
+	if ( ! headers_sent() ) {
+		nocache_headers();
+		header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
+		header( 'Pragma: no-cache' );
+	}
+}
+add_action( 'admin_init', 'dn_burst_funnel_stats_admin_nocache_headers' );
+
 /**
  * Register standalone admin menu.
  *

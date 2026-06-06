@@ -237,6 +237,9 @@ function dn_burst_funnel_stats_handle_import() {
 	}
 
 	dn_burst_funnel_stats_maybe_migrate();
+	if ( function_exists( 'dn_burst_dash_touch_data_changed' ) ) {
+		dn_burst_dash_touch_data_changed();
+	}
 	if ( function_exists( 'dn_burst_dash_clear_dashboard_cache' ) ) {
 		dn_burst_dash_clear_dashboard_cache();
 	}

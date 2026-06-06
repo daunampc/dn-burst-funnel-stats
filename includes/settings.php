@@ -62,6 +62,10 @@ function dn_burst_funnel_stats_handle_save_settings() {
 		false
 	);
 
+	if ( function_exists( 'dn_burst_dash_touch_data_changed' ) ) {
+		dn_burst_dash_touch_data_changed();
+	}
+
 	if ( function_exists( 'dn_burst_dash_clear_dashboard_cache' ) ) {
 		dn_burst_dash_clear_dashboard_cache();
 	}
