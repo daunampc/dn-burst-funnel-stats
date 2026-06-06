@@ -186,7 +186,7 @@
 }
 
 .dn-burst-chart-panel {
-  min-height: 310px;
+  min-height: 303px;
 }
 
 .dn-burst-chart {
@@ -612,6 +612,7 @@
 }
 
 @media (max-width: 782px) {
+
   .dn-burst-chart-header,
   .dn-burst-top-list-row {
     flex-direction: column;
@@ -690,10 +691,10 @@
   max-width: 430px;
 }
 
-.dn-burst-toolbar > .notice,
-.dn-burst-toolbar > div[class*="notice"],
-.dn-burst-toolbar > .updated,
-.dn-burst-toolbar > .error {
+.dn-burst-toolbar>.notice,
+.dn-burst-toolbar>div[class*="notice"],
+.dn-burst-toolbar>.updated,
+.dn-burst-toolbar>.error {
   order: 3;
   flex: 1 0 100%;
   box-sizing: border-box;
@@ -708,6 +709,7 @@
 
 .dn-burst-chart-panel {
   position: relative;
+  padding: 12px;
 }
 
 .dn-burst-chart-empty[hidden] {
@@ -722,8 +724,8 @@
   display: none !important;
 }
 
-.dn-burst-tab-content > .dn-burst-chart-empty,
-.dn-burst-grid > .dn-burst-chart-empty,
+.dn-burst-tab-content>.dn-burst-chart-empty,
+.dn-burst-grid>.dn-burst-chart-empty,
 .dn-burst-card .dn-burst-chart-empty {
   display: none !important;
 }
