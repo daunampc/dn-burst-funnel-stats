@@ -145,62 +145,120 @@
 		});
 	}
 
-	function drawAxes(ctx, width, height) {
-		ctx.strokeStyle = '#dcdcde';
-		ctx.lineWidth = 1;
-		ctx.beginPath();
-		ctx.moveTo(42, 12);
-		ctx.lineTo(42, height - 30);
-		ctx.lineTo(width - 12, height - 30);
-		ctx.stroke();
+	function normalizeSeries(data) {
+		if (data && $.isArray(data.series)) {
+			return data.series;
+		}
+
+		if (data && $.isArray(data.values)) {
+			return [{
+				label: data.label || '',
+				color: '#2271b1',
+				values: data.values
+			}];
+		}
+
+		return [];
 	}
 
-	function drawLine(ctx, values, color, width, height, max) {
-		var usableWidth = width - 58;
-		var usableHeight = height - 48;
-		var step = values.length > 1 ? usableWidth / (values.length - 1) : usableWidth;
+	function getAllValues(series) {
+		return series.reduce(function (carry, row) {
+			return carry.concat((row.values || []).map(function (value) {
+				return Number(value) || 0;
+			}));
+		}, []);
+	}
+
+	function hasMeaningfulChartData(series) {
+		return getAllValues(series).some(function (value) {
+			return value > 0;
+		});
+	}
+
+	function drawGrid(ctx, width, height, chart) {
+		var rows = 4;
+		ctx.strokeStyle = '#f0f0f1';
+		ctx.lineWidth = 1;
+		ctx.font = '11px sans-serif';
+		ctx.fillStyle = '#8c8f94';
+
+		for (var i = 0; i <= rows; i++) {
+			var y = chart.top + (chart.height / rows * i);
+			ctx.beginPath();
+			ctx.moveTo(chart.left, y);
+			ctx.lineTo(width - chart.right, y);
+			ctx.stroke();
+		}
+	}
+
+	function drawAxisLabels(ctx, labels, max, width, height, chart) {
+		var rows = 4;
+		ctx.font = '11px sans-serif';
+		ctx.fillStyle = '#646970';
+		ctx.textAlign = 'right';
+		ctx.textBaseline = 'middle';
+
+		for (var i = 0; i <= rows; i++) {
+			var y = chart.top + (chart.height / rows * i);
+			var value = max - (max / rows * i);
+			ctx.fillText(Math.round(value).toLocaleString(), chart.left - 10, y);
+		}
+
+		if (!labels || !labels.length) {
+			return;
+		}
+
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'top';
+		var visibleEvery = Math.max(1, Math.ceil(labels.length / 6));
+		var step = labels.length > 1 ? chart.width / (labels.length - 1) : chart.width;
+
+		labels.forEach(function (label, index) {
+			if (index % visibleEvery !== 0 && index !== labels.length - 1) {
+				return;
+			}
+
+			var x = chart.left + (step * index);
+			ctx.fillText(String(label || ''), x, height - 20);
+		});
+	}
+
+	function drawSmoothLine(ctx, points, color) {
+		if (!points.length) {
+			return;
+		}
 
 		ctx.strokeStyle = color;
 		ctx.lineWidth = 2;
+		ctx.lineJoin = 'round';
+		ctx.lineCap = 'round';
 		ctx.beginPath();
+		ctx.moveTo(points[0].x, points[0].y);
 
-		values.forEach(function (value, index) {
-			var x = 42 + (step * index);
-			var y = (height - 30) - ((Number(value) || 0) / max * usableHeight);
-			if (index === 0) {
-				ctx.moveTo(x, y);
-			} else {
-				ctx.lineTo(x, y);
-			}
-		});
+		for (var i = 1; i < points.length; i++) {
+			var prev = points[i - 1];
+			var point = points[i];
+			var cx = (prev.x + point.x) / 2;
+			ctx.bezierCurveTo(cx, prev.y, cx, point.y, point.x, point.y);
+		}
 
 		ctx.stroke();
-	}
 
-	function drawBars(ctx, labels, values, width, height) {
-		var max = Math.max.apply(null, values.concat([1]));
-		var usableWidth = width - 58;
-		var usableHeight = height - 48;
-		var gap = 8;
-		var barWidth = Math.max(8, (usableWidth / values.length) - gap);
-
-		values.forEach(function (value, index) {
-			var barHeight = (Number(value) || 0) / max * usableHeight;
-			var x = 46 + (index * (barWidth + gap));
-			var y = (height - 30) - barHeight;
-
-			ctx.fillStyle = '#2271b1';
-			ctx.fillRect(x, y, barWidth, barHeight);
-			ctx.fillStyle = '#646970';
-			ctx.font = '11px sans-serif';
-			ctx.fillText(String(labels[index] || '').slice(0, 12), x, height - 12);
+		points.forEach(function (point) {
+			ctx.beginPath();
+			ctx.fillStyle = '#fff';
+			ctx.strokeStyle = color;
+			ctx.lineWidth = 2;
+			ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.stroke();
 		});
 	}
 
 	function renderChart(canvas) {
 		var $canvas = $(canvas);
+		var $panel = $canvas.closest('.dn-burst-chart-panel');
 		var payload = $canvas.attr('data-chart');
-		var type = $canvas.data('dn-chart');
 		var data;
 
 		try {
@@ -209,29 +267,51 @@
 			data = {};
 		}
 
+		var labels = data.labels || [];
+		var series = normalizeSeries(data);
+		var values = getAllValues(series);
+		var hasData = hasMeaningfulChartData(series);
 		var ctx = canvas.getContext('2d');
 		var width = $canvas.parent().width() || 600;
 		var height = Number($canvas.attr('height')) || 220;
+		var chart = {
+			left: 56,
+			right: 16,
+			top: 24,
+			bottom: 36
+		};
+
+		chart.width = width - chart.left - chart.right;
+		chart.height = height - chart.top - chart.bottom;
+
 		canvas.width = width;
 		canvas.height = height;
 		ctx.clearRect(0, 0, width, height);
-		drawAxes(ctx, width, height);
 
-		if (type === 'sales') {
-			var series = [data.netSales || [], data.profits || [], data.orders || []];
-			var max = Math.max.apply(null, series.reduce(function (carry, row) { return carry.concat(row); }, [1]));
-			drawLine(ctx, series[0], '#2271b1', width, height, max);
-			drawLine(ctx, series[1], '#008a20', width, height, max);
-			drawLine(ctx, series[2], '#b26200', width, height, max);
+		$panel.toggleClass('is-empty', !hasData);
+
+		var max = Math.max.apply(null, values.concat([1]));
+		max = Math.ceil(max * 1.15);
+
+		drawGrid(ctx, width, height, chart);
+		drawAxisLabels(ctx, labels, max, width, height, chart);
+
+		if (!hasData) {
 			return;
 		}
 
-		if (type === 'line') {
-			drawLine(ctx, data.values || [], '#2271b1', width, height, Math.max.apply(null, (data.values || []).concat([1])));
-			return;
-		}
+		series.forEach(function (row) {
+			var rowValues = row.values || [];
+			var step = rowValues.length > 1 ? chart.width / (rowValues.length - 1) : chart.width;
+			var points = rowValues.map(function (value, index) {
+				return {
+					x: chart.left + (step * index),
+					y: chart.top + chart.height - (((Number(value) || 0) / max) * chart.height)
+				};
+			});
 
-		drawBars(ctx, data.labels || [], data.values || [], width, height);
+			drawSmoothLine(ctx, points, row.color || '#2271b1');
+		});
 	}
 
 	function initCharts() {
