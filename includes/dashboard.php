@@ -11,54 +11,69 @@ function dn_burst_dash_get_sales_orders_for_period( $start, $end ) {
 		array( 'wc-processing', 'wc-completed' )
 	);
 }
+
+function dn_burst_dash_get_cache_key( $prefix, $range = null ) {
+	$range = is_array( $range ) ? $range : dn_burst_dash_get_range_data();
+
+	return 'dn_bfs_' . sanitize_key( $prefix ) . '_' . md5( wp_json_encode( array(
+		$range['period'],
+		$range['compare'],
+		$range['current_start'],
+		$range['current_end'],
+		$range['previous_start'],
+		$range['previous_end'],
+	) ) );
+}
+
+function dn_burst_dash_clear_dashboard_cache() {
+	global $wpdb;
+
+	$wpdb->query(
+		"
+		DELETE FROM {$wpdb->options}
+		WHERE option_name LIKE '_transient_dn_bfs_%'
+			OR option_name LIKE '_transient_timeout_dn_bfs_%'
+		"
+	);
+}
+
+function dn_burst_dash_touch_refresh_time() {
+	update_option( 'dn_burst_funnel_stats_last_refresh', current_time( 'timestamp' ), false );
+}
+
+function dn_burst_dash_refresh_dashboard_cache() {
+	dn_burst_dash_clear_dashboard_cache();
+	dn_burst_dash_build_data();
+	dn_burst_dash_get_chart_data( dn_burst_dash_get_range_data() );
+	dn_burst_dash_touch_refresh_time();
+}
+
+function dn_burst_dash_schedule_refresh_event() {
+	if ( ! wp_next_scheduled( 'dn_burst_funnel_stats_refresh_cache' ) ) {
+		wp_schedule_event( time() + HOUR_IN_SECONDS, 'hourly', 'dn_burst_funnel_stats_refresh_cache' );
+	}
+}
+add_action( 'dn_burst_funnel_stats_refresh_cache', 'dn_burst_dash_refresh_dashboard_cache' );
 function dn_burst_dash_get_atc_option_key( $type, $date_key ) {
 	return 'dn_atc_' . $type . '_' . $date_key;
 }
 
+function dn_burst_dash_get_atc_url_groups_option_key( $date_key ) {
+	return 'dn_atc_url_groups_' . $date_key;
+}
+
 function dn_burst_dash_get_client_ip() {
-	$keys = array(
-		'HTTP_CF_CONNECTING_IP',
-		'HTTP_X_FORWARDED_FOR',
-		'HTTP_CLIENT_IP',
-		'REMOTE_ADDR',
-	);
-
-	foreach ( $keys as $key ) {
-		if ( empty( $_SERVER[ $key ] ) ) {
-			continue;
-		}
-
-		$value = wp_unslash( $_SERVER[ $key ] );
-		$parts = array_map( 'trim', explode( ',', $value ) );
-
-		foreach ( $parts as $ip ) {
-			if ( filter_var( $ip, FILTER_VALIDATE_IP ) ) {
-				return $ip;
-			}
-		}
-	}
-
-	return 'unknown';
+	return function_exists( 'dn_bfs_get_client_ip' ) ? dn_bfs_get_client_ip() : 'unknown';
 }
 function dn_burst_dash_get_ignored_ips() {
-	return array(
-		'127.0.0.1',
-		'::1',
-		'113.161.10.20',
-		'14.162.55.99',
-		'171.234.9.118',
-	);
+	$settings = function_exists( 'dn_bfs_get_tracking_settings' ) ? dn_bfs_get_tracking_settings() : array();
+
+	return isset( $settings['excluded_ips'] ) ? (array) $settings['excluded_ips'] : array();
 }
 
 
 function dn_burst_dash_is_ignored_ip( $ip = '' ) {
-	if ( empty( $ip ) || 'unknown' === $ip ) {
-		return false;
-	}
-
-	$ignored_ips = dn_burst_dash_get_ignored_ips();
-
-	return in_array( $ip, $ignored_ips, true );
+	return function_exists( 'dn_bfs_is_ip_excluded' ) ? dn_bfs_is_ip_excluded( $ip ) : false;
 }
 
 function dn_burst_dash_get_visitor_key() {
@@ -77,7 +92,7 @@ function dn_burst_dash_get_visitor_key() {
 	}
 
 	if ( '' === $session_part ) {
-		if ( empty( $_COOKIE['dn_atc_visitor'] ) ) {
+		if ( empty( $_COOKIE['dn_atc_visitor'] ) || is_array( $_COOKIE['dn_atc_visitor'] ) ) {
 			$token = wp_generate_password( 20, false, false );
 			wc_setcookie( 'dn_atc_visitor', $token, time() + MONTH_IN_SECONDS );
 			$_COOKIE['dn_atc_visitor'] = $token;
@@ -97,51 +112,7 @@ function dn_burst_dash_get_atc_dedupe_key( $product_id ) {
 
 
 function dn_burst_dash_is_bot_request() {
-	$ua = isset( $_SERVER['HTTP_USER_AGENT'] )
-		? strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) )
-		: '';
-
-	if ( '' === $ua ) {
-		return true;
-	}
-
-	$bot_patterns = array(
-		'bot',
-		'crawl',
-		'spider',
-		'slurp',
-		'mediapartners',
-		'facebookexternalhit',
-		'facebot',
-		'whatsapp',
-		'telegrambot',
-		'twitterbot',
-		'linkedinbot',
-		'pinterest',
-		'preview',
-		'monitor',
-		'uptime',
-		'pingdom',
-		'gtmetrix',
-		'pagespeed',
-		'lighthouse',
-		'cache',
-		'preload',
-		'python-requests',
-		'curl',
-		'wget',
-		'httpclient',
-		'axios',
-		'guzzlehttp',
-	);
-
-	foreach ( $bot_patterns as $pattern ) {
-		if ( false !== strpos( $ua, $pattern ) ) {
-			return true;
-		}
-	}
-
-	return false;
+	return function_exists( 'dn_bfs_is_bot_request' ) ? dn_bfs_is_bot_request() : false;
 }
 
 function dn_burst_dash_is_bad_atc_request() {
@@ -157,13 +128,13 @@ function dn_burst_dash_is_bad_atc_request() {
 		? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) )
 		: '';
 
-	// Chỉ tính POST để tránh bot/spam GET ?add-to-cart=ID.
+	// Count POST add-to-cart requests only, avoiding bot/spam GET traffic.
 	if ( 'POST' !== $method ) {
 		return true;
 	}
 
-	// Cho phép WooCommerce AJAX add to cart.
-	$wc_ajax = isset( $_GET['wc-ajax'] )
+	// Allow WooCommerce AJAX add-to-cart.
+	$wc_ajax = ( isset( $_GET['wc-ajax'] ) && ! is_array( $_GET['wc-ajax'] ) )
 		? sanitize_key( wp_unslash( $_GET['wc-ajax'] ) )
 		: '';
 
@@ -171,13 +142,13 @@ function dn_burst_dash_is_bad_atc_request() {
 		return false;
 	}
 
-	// Cho phép non-admin frontend request.
+	// Allow normal frontend requests.
 	if ( ! is_admin() ) {
 		return false;
 	}
 
-	// Nếu đang admin-ajax thì chỉ cho qua action add_to_cart hợp lệ.
-	$action = isset( $_REQUEST['action'] )
+	// Allow valid admin-ajax add-to-cart actions.
+	$action = ( isset( $_REQUEST['action'] ) && ! is_array( $_REQUEST['action'] ) )
 		? sanitize_key( wp_unslash( $_REQUEST['action'] ) )
 		: '';
 
@@ -196,7 +167,7 @@ function dn_burst_dash_atc_rate_limited( $ip ) {
 	$key   = 'dn_atc_rate_' . md5( $ip );
 	$count = (int) get_transient( $key );
 
-	// Tối đa 5 add-to-cart / IP / phút.
+	// Limit to 5 add-to-cart writes per IP per minute.
 	if ( $count >= 5 ) {
 		return true;
 	}
@@ -204,6 +175,53 @@ function dn_burst_dash_atc_rate_limited( $ip ) {
 	set_transient( $key, $count + 1, MINUTE_IN_SECONDS );
 
 	return false;
+}
+
+function dn_burst_dash_get_request_url_for_params() {
+	$request_uri = isset( $_SERVER['REQUEST_URI'] )
+		? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) )
+		: '';
+
+	if ( '' !== $request_uri ) {
+		return home_url( $request_uri );
+	}
+
+	return wp_get_referer() ? wp_get_referer() : '';
+}
+
+function dn_burst_dash_record_atc_url_groups( $date_key, $quantity ) {
+	$url = dn_burst_dash_get_request_url_for_params();
+
+	if ( '' === $url ) {
+		return;
+	}
+
+	$option_key = dn_burst_dash_get_atc_url_groups_option_key( $date_key );
+	$groups     = get_option( $option_key, array() );
+
+	if ( ! is_array( $groups ) ) {
+		$groups = array();
+	}
+
+	foreach ( array( 'campaign', 'source', 'medium' ) as $group ) {
+		$value = dn_burst_dash_get_group_value_from_url( $url, $group );
+
+		if ( ! isset( $groups[ $group ] ) || ! is_array( $groups[ $group ] ) ) {
+			$groups[ $group ] = array();
+		}
+
+		if ( ! isset( $groups[ $group ][ $value ] ) || ! is_array( $groups[ $group ][ $value ] ) ) {
+			$groups[ $group ][ $value ] = array(
+				'hits' => 0,
+				'qty'  => 0,
+			);
+		}
+
+		$groups[ $group ][ $value ]['hits'] = absint( $groups[ $group ][ $value ]['hits'] ) + 1;
+		$groups[ $group ][ $value ]['qty']  = absint( $groups[ $group ][ $value ]['qty'] ) + max( 1, absint( $quantity ) );
+	}
+
+	update_option( $option_key, $groups, false );
 }
 
 add_action( 'woocommerce_add_to_cart', function(
@@ -215,6 +233,14 @@ add_action( 'woocommerce_add_to_cart', function(
 	$cart_item_data
 ) {
 	$client_ip = dn_burst_dash_get_client_ip();
+	$target_product_id = $variation_id ? $variation_id : $product_id;
+
+	if (
+		function_exists( 'dn_bfs_should_track_request' )
+		&& ! dn_bfs_should_track_request( 'add_to_cart', array( 'product_id' => $target_product_id ) )
+	) {
+		return;
+	}
 
 	if ( dn_burst_dash_is_ignored_ip( $client_ip ) ) {
 		return;
@@ -228,7 +254,12 @@ add_action( 'woocommerce_add_to_cart', function(
 		return;
 	}
 
-	$target_product_id = $variation_id ? $variation_id : $product_id;
+	if (
+		function_exists( 'dn_burst_funnel_stats_should_track_product' )
+		&& ! dn_burst_funnel_stats_should_track_product( $target_product_id )
+	) {
+		return;
+	}
 
 	$dedupe_key = dn_burst_dash_get_atc_dedupe_key( $target_product_id );
 	$already_tracked = get_transient( $dedupe_key );
@@ -249,6 +280,7 @@ add_action( 'woocommerce_add_to_cart', function(
 
 	update_option( $hits_key, $current_hits + 1, false );
 	update_option( $qty_key, $current_qty + max( 1, absint( $quantity ) ), false );
+	dn_burst_dash_record_atc_url_groups( $date_key, $quantity );
 
 	set_transient( $dedupe_key, 1, DAY_IN_SECONDS );
 }, 10, 6 );
@@ -275,18 +307,53 @@ function dn_burst_dash_get_atc_stats_for_period( $start, $end ) {
 	);
 }
 
+function dn_burst_dash_get_atc_url_group_stats_for_period( $start, $end, $group ) {
+	$tz = wp_timezone();
 
-function dn_burst_dash_is_page() {
-	if ( ! is_admin() ) {
-		return false;
+	$start_dt = ( new DateTimeImmutable( '@' . (int) $start ) )->setTimezone( $tz )->setTime( 0, 0, 0 );
+	$end_dt   = ( new DateTimeImmutable( '@' . (int) $end ) )->setTimezone( $tz )->setTime( 0, 0, 0 );
+	$group    = dn_burst_dash_sanitize_group( $group );
+	$stats    = array();
+
+	for ( $cursor = $start_dt; $cursor <= $end_dt; $cursor = $cursor->modify( '+1 day' ) ) {
+		$date_key = $cursor->format( 'Y_m_d' );
+		$groups   = get_option( dn_burst_dash_get_atc_url_groups_option_key( $date_key ), array() );
+
+		if ( empty( $groups[ $group ] ) || ! is_array( $groups[ $group ] ) ) {
+			continue;
+		}
+
+		foreach ( $groups[ $group ] as $value => $row ) {
+			$value = sanitize_text_field( (string) $value );
+
+			if ( ! isset( $stats[ $value ] ) ) {
+				$stats[ $value ] = array(
+					'hits' => 0,
+					'qty'  => 0,
+				);
+			}
+
+			$stats[ $value ]['hits'] += isset( $row['hits'] ) ? absint( $row['hits'] ) : 0;
+			$stats[ $value ]['qty']  += isset( $row['qty'] ) ? absint( $row['qty'] ) : 0;
+		}
 	}
 
-	global $pagenow;
-
-	$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
-
-	return $pagenow === 'admin.php' && $page === 'dn-burst-funnel-stats';
+	return $stats;
 }
+
+
+function dn_burst_dash_is_page() {
+	return function_exists( 'dn_burst_funnel_stats_is_admin_page' ) && dn_burst_funnel_stats_is_admin_page();
+}
+
+function dn_burst_dash_get_query_value( $key, $default = '' ) {
+	if ( ! isset( $_GET[ $key ] ) || is_array( $_GET[ $key ] ) ) {
+		return $default;
+	}
+
+	return wp_unslash( $_GET[ $key ] );
+}
+
 function dn_burst_dash_get_created_products_count( $start, $end ) {
 	$args = array(
 		'post_type'      => 'product',
@@ -377,66 +444,9 @@ function dn_burst_dash_get_wc_paths() {
 }
 
 function dn_burst_dash_get_range_data() {
-	$range = isset( $_GET['dn_range'] ) ? sanitize_key( wp_unslash( $_GET['dn_range'] ) ) : 'today';
-	$tz    = wp_timezone();
-	$now   = new DateTimeImmutable( 'now', $tz );
-
-	switch ( $range ) {
-		case 'yesterday':
-			$label = 'day before yesterday';
-
-			$current_start_dt = $now->modify( '-1 day' )->setTime( 0, 0, 0 );
-			$current_end_dt   = $now->modify( '-1 day' )->setTime( 23, 59, 59 );
-
-			$previous_start_dt = $now->modify( '-2 day' )->setTime( 0, 0, 0 );
-			$previous_end_dt   = $now->modify( '-2 day' )->setTime( 23, 59, 59 );
-			break;
-
-		case '7d':
-			$label = 'previous 7 days';
-
-			$current_start_dt = $now->setTime( 0, 0, 0 )->modify( '-6 days' );
-			$current_end_dt   = $now->setTime( 23, 59, 59 );
-
-			$previous_start_dt = $current_start_dt->modify( '-7 days' );
-			$previous_end_dt   = $current_start_dt->modify( '-1 second' );
-			break;
-
-		case '30d':
-			$label = 'previous 30 days';
-
-			$current_start_dt = $now->setTime( 0, 0, 0 )->modify( '-29 days' );
-			$current_end_dt   = $now->setTime( 23, 59, 59 );
-
-			$previous_start_dt = $current_start_dt->modify( '-30 days' );
-			$previous_end_dt   = $current_start_dt->modify( '-1 second' );
-			break;
-
-		case 'today':
-		default:
-			$range = 'today';
-			$label = 'yesterday';
-
-			$current_start_dt = $now->setTime( 0, 0, 0 );
-			$current_end_dt   = $now->setTime( 23, 59, 59 );
-
-			$previous_start_dt = $now->modify( '-1 day' )->setTime( 0, 0, 0 );
-			$previous_end_dt   = $now->modify( '-1 day' )->setTime( 23, 59, 59 );
-			break;
-	}
-
-	return array(
-		'range'                => $range,
-		'compare_label'        => $label,
-		'current_start'        => $current_start_dt->getTimestamp(),
-		'current_end'          => $current_end_dt->getTimestamp(),
-		'previous_start'       => $previous_start_dt->getTimestamp(),
-		'previous_end'         => $previous_end_dt->getTimestamp(),
-		'current_start_mysql'  => $current_start_dt->format( 'Y-m-d H:i:s' ),
-		'current_end_mysql'    => $current_end_dt->format( 'Y-m-d H:i:s' ),
-		'previous_start_mysql' => $previous_start_dt->format( 'Y-m-d H:i:s' ),
-		'previous_end_mysql'   => $previous_end_dt->format( 'Y-m-d H:i:s' ),
-	);
+	return function_exists( 'dn_bfs_get_range_data_from_request' )
+		? dn_bfs_get_range_data_from_request()
+		: array();
 }
 
 function dn_burst_dash_format_percent_change( $current, $previous ) {
@@ -726,6 +736,12 @@ function dn_burst_dash_get_wc_period_stats( $start, $end ) {
 
 function dn_burst_dash_build_data() {
 	$range = dn_burst_dash_get_range_data();
+	$cache_key = dn_burst_dash_get_cache_key( 'dash', $range );
+	$cached    = get_transient( $cache_key );
+
+	if ( is_array( $cached ) ) {
+		return $cached;
+	}
 
 	$current_burst = dn_burst_dash_get_burst_period_stats( $range['current_start'], $range['current_end'] );
 	$previous_burst = dn_burst_dash_get_burst_period_stats( $range['previous_start'], $range['previous_end'] );
@@ -766,7 +782,7 @@ function dn_burst_dash_build_data() {
 	$atc_qty_current    = $current_atc['qty'];
 	$atc_qty_previous   = $previous_atc['qty'];
 
-	return array(
+	$data = array(
 		'range'         => $range,
 		'paths'         => $current_burst['paths'],
 		'current_burst' => $current_burst,
@@ -775,7 +791,7 @@ function dn_burst_dash_build_data() {
 		'previous_wc'   => $previous_wc,
 		'cards'         => array(
 			'visits' => array(
-				'title'         => 'Visits',
+				'title'         => __( 'Visits', 'dn-burst-funnel-stats' ),
 				'main'          => $visits_current,
 				'secondary'     => '',
 				'compare'       => $visits_previous,
@@ -783,7 +799,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'eye',
 			),
 			'product_visits' => array(
-				'title'         => 'Product Visits',
+				'title'         => __( 'Product Visits', 'dn-burst-funnel-stats' ),
 				'main'          => $product_visits_current,
 				'secondary'     => $visits_current > 0 ? round( ( $product_visits_current / $visits_current ) * 100, 1 ) . '%' : '0%',
 				'compare'       => $product_visits_previous,
@@ -791,7 +807,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'product',
 			),
 			'cart' => array(
-				'title'         => 'Cart Visits',
+				'title'         => __( 'Cart Visits', 'dn-burst-funnel-stats' ),
 				'main'          => $cart_current,
 				'secondary'     => $visits_current > 0 ? round( ( $cart_current / $visits_current ) * 100, 1 ) . '%' : '0%',
 				'compare'       => $cart_previous,
@@ -799,17 +815,22 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'cart',
 			),
 			'atc_events' => array(
-				'title'         => 'Add To Cart',
+				'title'         => __( 'Add To Cart', 'dn-burst-funnel-stats' ),
 				'main'          => $atc_hits_current,
 				'secondary' => $visits_current > 0
 				? round( ( $atc_hits_current / $visits_current ) * 100, 1 ) . '%'
 				: '0%',
-				'compare'       => $atc_hits_previous . ' / Qty: ' . $atc_qty_previous,
+				'compare'       => sprintf(
+					/* translators: %1$s: previous Add To Cart hits, %2$s: previous Add To Cart quantity. */
+					__( '%1$s / Qty: %2$s', 'dn-burst-funnel-stats' ),
+					$atc_hits_previous,
+					$atc_qty_previous
+				),
 				'change'        => dn_burst_dash_format_percent_change( $atc_hits_current, $atc_hits_previous ) . '%',
 				'icon'          => 'cart',
 			),
 			'checkout' => array(
-				'title'         => 'Checkout',
+				'title'         => __( 'Checkout', 'dn-burst-funnel-stats' ),
 				'main'          => $checkout_current,
 				'secondary'     => $visits_current > 0 ? round( ( $checkout_current / $visits_current ) * 100, 1 ) . '%' : '0%',
 				'compare'       => $checkout_previous,
@@ -817,7 +838,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'checkout',
 			),
 // 			'payment' => array(
-// 				'title'         => 'Add Payment Info',
+// 				'title'         => __( 'Add Payment Info', 'dn-burst-funnel-stats' ),
 // 				'main'          => $payment_current,
 // 				'secondary'     => $checkout_current > 0 ? round( ( $payment_current / $checkout_current ) * 100, 1 ) . '%' : '0%',
 // 				'compare'       => $payment_previous,
@@ -825,7 +846,7 @@ function dn_burst_dash_build_data() {
 // 				'icon'          => 'wand',
 // 			),
 			'orders_aov' => array(
-				'title'         => 'Orders/AOV',
+				'title'         => __( 'Orders/AOV', 'dn-burst-funnel-stats' ),
 				'main'          => $orders_current,
 				'secondary'     => wc_price( $current_wc['aov'] ),
 				'compare'       => $orders_previous,
@@ -833,7 +854,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'orders',
 			),
 			'items_aoi' => array(
-				'title'         => 'Items/AOI',
+				'title'         => __( 'Items/AOI', 'dn-burst-funnel-stats' ),
 				'main'          => $items_current,
 				'secondary'     => round( $current_wc['aoi'], 1 ),
 				'compare'       => $items_previous . ' / ' . round( $previous_wc['aoi'], 1 ),
@@ -841,7 +862,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'box',
 			),
 			'conversion' => array(
-				'title'         => 'Conversion Rate',
+				'title'         => __( 'Conversion Rate', 'dn-burst-funnel-stats' ),
 				'main'          => $conversion_current . '%',
 				'secondary'     => '',
 				'compare'       => $conversion_previous . '%',
@@ -849,7 +870,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'check',
 			),
 			'campaigns' => array(
-				'title'         => 'Created Campaigns',
+				'title'         => __( 'Created Campaigns', 'dn-burst-funnel-stats' ),
 				'main'          => $current_wc['created_campaigns'],
 				'secondary'     => '',
 				'compare'       => 0,
@@ -857,7 +878,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'megaphone',
 			),
 // 			'pending' => array(
-// 				'title'         => 'Pending Payment',
+// 				'title'         => __( 'Pending Payment', 'dn-burst-funnel-stats' ),
 // 				'main'          => $current_wc['pending_payment'],
 // 				'secondary'     => '',
 // 				'compare'       => $previous_wc['pending_payment'],
@@ -865,15 +886,15 @@ function dn_burst_dash_build_data() {
 // 				'icon'          => 'pending',
 // 			),
 			'sales_tip' => array(
-				'title'         => 'Sales/Tip',
+				'title'         => __( 'Sales/Tip', 'dn-burst-funnel-stats' ),
 				'main'          => wc_price( $current_wc['gross_sales'] ),
 				'secondary'     => wc_price( $current_wc['tip_total'] ),
 				'compare'       => wc_price( $previous_wc['gross_sales'] ),
-				'change'        => $current_wc['tip_total'] > 0 ? 'Tip' : '',
+				'change'        => $current_wc['tip_total'] > 0 ? __( 'Tip', 'dn-burst-funnel-stats' ) : '',
 				'icon'          => 'dollar',
 			),
 // 			'profits' => array(
-// 				'title'         => 'Profits',
+// 				'title'         => __( 'Profits', 'dn-burst-funnel-stats' ),
 // 				'main'          => wc_price( $current_wc['profit_proxy'] ),
 // 				'secondary'     => '',
 // 				'compare'       => wc_price( $previous_wc['profit_proxy'] ),
@@ -881,7 +902,7 @@ function dn_burst_dash_build_data() {
 // 				'icon'          => 'profit',
 // 			),
 			'fulfillment' => array(
-				'title'         => 'Fulfillment Orders',
+				'title'         => __( 'Fulfillment Orders', 'dn-burst-funnel-stats' ),
 				'main'          => $current_wc['fulfillment_orders'] . ' / ' . wc_price( $current_wc['fulfillment_total'] ),
 				'secondary'     => '',
 				'compare'       => $previous_wc['fulfillment_orders'] . ' / ' . wc_price( $previous_wc['fulfillment_total'] ),
@@ -889,7 +910,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'card',
 			),
 			'paid_balance' => array(
-				'title'         => 'Paid/Balance',
+				'title'         => __( 'Paid/Balance', 'dn-burst-funnel-stats' ),
 				'main'          => wc_price( $current_wc['paid_total'] ) . ' / ' . wc_price( $current_wc['balance_total'] ),
 				'secondary'     => '',
 				'compare'       => wc_price( $previous_wc['paid_total'] ),
@@ -897,7 +918,7 @@ function dn_burst_dash_build_data() {
 				'icon'          => 'money',
 			),
 // 			'insurance' => array(
-// 				'title'         => 'Insurance Fee',
+// 				'title'         => __( 'Insurance Fee', 'dn-burst-funnel-stats' ),
 // 				'main'          => wc_price( $current_wc['insurance_fee'] ),
 // 				'secondary'     => '',
 // 				'compare'       => '',
@@ -906,189 +927,11 @@ function dn_burst_dash_build_data() {
 // 			),
 		),
 	);
+
+	set_transient( $cache_key, $data, 10 * MINUTE_IN_SECONDS );
+
+	return $data;
 }
-
-/**
- * =========================
- * Menu
- * =========================
- */
-
-add_action( 'admin_menu', function() {
-	add_submenu_page(
-		'burst',
-		'Funnel Stats',
-		'Funnel Stats',
-		'manage_options',
-		'dn-burst-funnel-stats',
-		'dn_burst_dash_render_page'
-	);
-}, 99 );
-
-/**
- * =========================
- * CSS
- * =========================
- */
-
-add_action( 'admin_head', function() {
-	$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
-	if ( ! dn_burst_dash_is_page() ) {
-		return;
-	}
-	?>
-	<style>
-		.dn-burst-wrap{
-			padding:20px 20px 0 0;
-		}
-		.dn-burst-toolbar{
-			display:flex;
-			justify-content:space-between;
-			align-items:center;
-			margin:0 0 20px;
-			gap:16px;
-			flex-wrap:wrap;
-		}
-		.dn-burst-title{
-			font-size:24px;
-			font-weight:600;
-			margin:0;
-			color:#1d2327;
-		}
-		.dn-burst-filters{
-			display:flex;
-			gap:8px;
-			flex-wrap:wrap;
-		}
-		.dn-burst-filters a{
-			display:inline-flex;
-			align-items:center;
-			justify-content:center;
-			min-height:36px;
-			padding:0 14px;
-			background:#fff;
-			border:1px solid #dcdcde;
-			border-radius:8px;
-			text-decoration:none;
-			color:#2c3338;
-			box-shadow:none;
-		}
-		.dn-burst-filters a.is-active{
-			background:#2271b1;
-			border-color:#2271b1;
-			color:#fff;
-		}
-		.dn-burst-grid{
-			display:grid;
-			grid-template-columns:repeat(4,minmax(240px,1fr));
-			gap:22px;
-		}
-		.dn-burst-card{
-			background:#fff;
-			border:1px solid #edf0f4;
-			border-radius:8px;
-			padding:24px;
-			min-height:140px;
-			box-sizing:border-box;
-			position:relative;
-		}
-		.dn-burst-card-title{
-			margin:0 0 18px;
-			font-size:15px;
-			line-height:1.4;
-			font-weight:500;
-			color:#8a9aa8;
-		}
-		.dn-burst-card-icon{
-			position:absolute;
-			top:24px;
-			right:24px;
-			width:42px;
-			height:42px;
-			border-radius:4px;
-			background:#dfe0ff;
-			display:flex;
-			align-items:center;
-			justify-content:center;
-			color:#6b73ff;
-			font-size:18px;
-			font-weight:700;
-		}
-		.dn-burst-main-line{
-			display:flex;
-			align-items:baseline;
-			gap:8px;
-			flex-wrap:wrap;
-			margin:0 0 18px;
-		}
-		.dn-burst-main{
-			font-size:18px;
-			line-height:1.2;
-			font-weight:700;
-			color:#646f7b;
-		}
-		.dn-burst-main.is-large{
-			font-size:40px;
-		}
-		.dn-burst-secondary{
-			font-size:16px;
-			line-height:1.2;
-			color:#646f7b;
-		}
-		.dn-burst-secondary.is-highlight{
-			color:#ff8500;
-		}
-		.dn-burst-compare{
-			font-size:15px;
-			line-height:1.5;
-			color:#8897a5;
-		}
-		.dn-burst-compare strong{
-			color:#1ea7fd;
-			font-weight:500;
-			margin-right:6px;
-		}
-		.dn-burst-change{
-			display:inline-block;
-			margin-left:2px;
-			padding:1px 6px;
-			border-radius:4px;
-			background:#dcfce7;
-			color:#10b981;
-			font-size:12px;
-			line-height:1.4;
-			font-weight:600;
-			vertical-align:middle;
-		}
-		.dn-burst-meta{
-			margin-top:22px;
-			padding:18px;
-			background:#fff;
-			border:1px solid #edf0f4;
-			border-radius:8px;
-			color:#50575e;
-		}
-		.dn-burst-meta code{
-			font-size:12px;
-		}
-		@media (max-width: 1400px){
-			.dn-burst-grid{
-				grid-template-columns:repeat(3,minmax(240px,1fr));
-			}
-		}
-		@media (max-width: 1100px){
-			.dn-burst-grid{
-				grid-template-columns:repeat(2,minmax(240px,1fr));
-			}
-		}
-		@media (max-width: 782px){
-			.dn-burst-grid{
-				grid-template-columns:1fr;
-			}
-		}
-	</style>
-	<?php
-});
 
 /**
  * =========================
@@ -1155,6 +998,917 @@ function dn_burst_dash_render_card( $card, $compare_label ) {
 	<?php
 }
 
+function dn_burst_dash_get_tabs() {
+	return array(
+		'overview'  => esc_html__( 'Overview', 'dn-burst-funnel-stats' ),
+		'brands'    => esc_html__( 'Brands', 'dn-burst-funnel-stats' ),
+		'ad-urls'   => esc_html__( 'Ad URLs', 'dn-burst-funnel-stats' ),
+		'countries' => esc_html__( 'Countries', 'dn-burst-funnel-stats' ),
+		'devices'   => esc_html__( 'Devices', 'dn-burst-funnel-stats' ),
+		'products'  => esc_html__( 'Products', 'dn-burst-funnel-stats' ),
+	);
+}
+
+function dn_burst_dash_sanitize_tab( $tab ) {
+	$tab = sanitize_key( $tab );
+
+	return array_key_exists( $tab, dn_burst_dash_get_tabs() ) ? $tab : 'overview';
+}
+
+function dn_burst_dash_sanitize_group( $group ) {
+	$group = sanitize_key( $group );
+
+	return in_array( $group, array( 'campaign', 'source', 'medium' ), true ) ? $group : 'campaign';
+}
+
+function dn_burst_dash_format_money( $value ) {
+	return function_exists( 'wc_price' ) ? wc_price( (float) $value ) : number_format_i18n( (float) $value, 2 );
+}
+
+function dn_burst_dash_get_burst_columns() {
+	global $wpdb;
+
+	static $columns = null;
+
+	if ( null !== $columns ) {
+		return $columns;
+	}
+
+	if ( ! dn_burst_dash_burst_table_exists() ) {
+		$columns = array();
+		return $columns;
+	}
+
+	$table   = dn_burst_dash_get_burst_table_name();
+	$results = $wpdb->get_results( "DESCRIBE {$table}", ARRAY_A );
+	$columns = array();
+
+	foreach ( (array) $results as $row ) {
+		if ( ! empty( $row['Field'] ) ) {
+			$columns[] = sanitize_key( $row['Field'] );
+		}
+	}
+
+	return $columns;
+}
+
+function dn_burst_dash_get_url_group_params( $group ) {
+	$params = array(
+		'campaign' => array( 'utm_campaign', 'campaign' ),
+		'source'   => array( 'utm_source', 'source' ),
+		'medium'   => array( 'utm_medium', 'medium' ),
+	);
+
+	return isset( $params[ $group ] ) ? $params[ $group ] : $params['campaign'];
+}
+
+function dn_burst_dash_get_group_value_from_url( $url, $group ) {
+	$query = wp_parse_url( $url, PHP_URL_QUERY );
+
+	if ( empty( $query ) ) {
+		return 'N/A';
+	}
+
+	parse_str( $query, $params );
+
+	foreach ( dn_burst_dash_get_url_group_params( $group ) as $param ) {
+		if ( isset( $params[ $param ] ) ) {
+			$value = $params[ $param ];
+
+			if ( is_array( $value ) ) {
+				$value = reset( $value );
+			}
+
+			if ( '' === trim( (string) $value ) ) {
+				continue;
+			}
+
+			return sanitize_text_field( wp_unslash( (string) $value ) );
+		}
+	}
+
+	return 'N/A';
+}
+
+function dn_burst_dash_is_url_path_match( $url, $path ) {
+	$url_path = wp_parse_url( $url, PHP_URL_PATH );
+
+	if ( empty( $url_path ) || empty( $path ) ) {
+		return false;
+	}
+
+	$url_path = untrailingslashit( $url_path );
+	$path     = untrailingslashit( $path );
+
+	return $url_path === $path || 0 === strpos( $url_path . '/', $path . '/' );
+}
+
+function dn_burst_dash_get_burst_url_rows( $start, $end ) {
+	global $wpdb;
+
+	if ( ! dn_burst_dash_burst_table_exists() ) {
+		return array();
+	}
+
+	$table = dn_burst_dash_get_burst_table_name();
+
+	return $wpdb->get_results(
+		$wpdb->prepare(
+			"
+			SELECT page_url, uid, session_id
+			FROM {$table}
+			WHERE time >= %d
+				AND time <= %d
+			LIMIT 50000
+			",
+			(int) $start,
+			(int) $end
+		),
+		ARRAY_A
+	);
+}
+
+function dn_burst_dash_get_order_group_value( $order, $group ) {
+	if ( ! $order instanceof WC_Order ) {
+		return 'N/A';
+	}
+
+	$meta_keys = array(
+		'campaign' => array( '_wc_order_attribution_utm_campaign', '_utm_campaign', 'utm_campaign', 'campaign' ),
+		'source'   => array( '_wc_order_attribution_utm_source', '_utm_source', 'utm_source', 'source' ),
+		'medium'   => array( '_wc_order_attribution_utm_medium', '_utm_medium', 'utm_medium', 'medium' ),
+	);
+
+	foreach ( $meta_keys[ $group ] as $meta_key ) {
+		$value = $order->get_meta( $meta_key, true );
+
+		if ( '' !== trim( (string) $value ) ) {
+			return sanitize_text_field( (string) $value );
+		}
+	}
+
+	return 'N/A';
+}
+
+function dn_burst_dash_get_url_tracking_rows( $group, $range ) {
+	$group = dn_burst_dash_sanitize_group( $group );
+	$paths = dn_burst_dash_get_wc_paths();
+	$rows  = array();
+
+	foreach ( dn_burst_dash_get_burst_url_rows( $range['current_start'], $range['current_end'] ) as $burst_row ) {
+		$url   = isset( $burst_row['page_url'] ) ? (string) $burst_row['page_url'] : '';
+		$value = dn_burst_dash_get_group_value_from_url( $url, $group );
+
+		if ( ! isset( $rows[ $value ] ) ) {
+			$rows[ $value ] = array(
+				'url_param'        => $value,
+				'visitor_keys'     => array(),
+				'cart_keys'        => array(),
+				'checkout_keys'    => array(),
+				'tracked_atc'      => 0,
+				'orders'           => 0,
+				'items'            => 0,
+				'sales'            => 0,
+				'profits'          => 0,
+				'conversion_rate'  => 0,
+			);
+		}
+
+		$visitor_key = ! empty( $burst_row['uid'] ) ? (string) $burst_row['uid'] : ( ! empty( $burst_row['session_id'] ) ? (string) $burst_row['session_id'] : md5( $url ) );
+
+		$rows[ $value ]['visitor_keys'][ $visitor_key ] = true;
+
+		if ( dn_burst_dash_is_url_path_match( $url, $paths['cart'] ) ) {
+			$rows[ $value ]['cart_keys'][ $visitor_key ] = true;
+		}
+
+		if ( dn_burst_dash_is_url_path_match( $url, $paths['checkout'] ) ) {
+			$rows[ $value ]['checkout_keys'][ $visitor_key ] = true;
+		}
+	}
+
+	foreach ( dn_burst_dash_get_sales_orders_for_period( $range['current_start'], $range['current_end'] ) as $order ) {
+		$value = dn_burst_dash_get_order_group_value( $order, $group );
+
+		if ( ! isset( $rows[ $value ] ) ) {
+			$rows[ $value ] = array(
+				'url_param'        => $value,
+				'visitor_keys'     => array(),
+				'cart_keys'        => array(),
+				'checkout_keys'    => array(),
+				'tracked_atc'      => 0,
+				'orders'           => 0,
+				'items'            => 0,
+				'sales'            => 0,
+				'profits'          => 0,
+				'conversion_rate'  => 0,
+			);
+		}
+
+		$total    = (float) $order->get_total();
+		$shipping = (float) $order->get_shipping_total();
+
+		$rows[ $value ]['orders']  += 1;
+		$rows[ $value ]['items']   += (int) $order->get_item_count();
+		$rows[ $value ]['sales']   += $total;
+		$rows[ $value ]['profits'] += max( 0, $total - (float) $order->get_total_refunded() - $shipping );
+	}
+
+	foreach ( dn_burst_dash_get_atc_url_group_stats_for_period( $range['current_start'], $range['current_end'], $group ) as $value => $atc_row ) {
+		if ( ! isset( $rows[ $value ] ) ) {
+			$rows[ $value ] = array(
+				'url_param'        => $value,
+				'visitor_keys'     => array(),
+				'cart_keys'        => array(),
+				'checkout_keys'    => array(),
+				'tracked_atc'      => 0,
+				'orders'           => 0,
+				'items'            => 0,
+				'sales'            => 0,
+				'profits'          => 0,
+				'conversion_rate'  => 0,
+			);
+		}
+
+		$rows[ $value ]['tracked_atc'] += isset( $atc_row['hits'] ) ? absint( $atc_row['hits'] ) : 0;
+	}
+
+	foreach ( $rows as $key => $row ) {
+		$visits = count( $row['visitor_keys'] );
+
+		$rows[ $key ]['visits']          = $visits;
+		$rows[ $key ]['add_to_cart']     = ! empty( $row['tracked_atc'] ) ? absint( $row['tracked_atc'] ) : count( $row['cart_keys'] );
+		$rows[ $key ]['checkout']        = count( $row['checkout_keys'] );
+		$rows[ $key ]['conversion_rate'] = $visits > 0 ? round( ( (int) $row['orders'] / $visits ) * 100, 2 ) : 0;
+
+		unset( $rows[ $key ]['visitor_keys'], $rows[ $key ]['cart_keys'], $rows[ $key ]['checkout_keys'], $rows[ $key ]['tracked_atc'] );
+	}
+
+	return array_values( $rows );
+}
+
+function dn_burst_dash_sort_rows( $rows, $orderby, $order ) {
+	$orderby = sanitize_key( $orderby );
+	$order   = 'asc' === strtolower( $order ) ? 'asc' : 'desc';
+
+	usort(
+		$rows,
+		function( $a, $b ) use ( $orderby, $order ) {
+			$a_value = isset( $a[ $orderby ] ) ? $a[ $orderby ] : '';
+			$b_value = isset( $b[ $orderby ] ) ? $b[ $orderby ] : '';
+
+			if ( is_numeric( $a_value ) && is_numeric( $b_value ) ) {
+				$result = (float) $a_value <=> (float) $b_value;
+			} else {
+				$result = strcasecmp( (string) $a_value, (string) $b_value );
+			}
+
+			return 'asc' === $order ? $result : -$result;
+		}
+	);
+
+	return $rows;
+}
+
+function dn_burst_dash_get_sort_url( $column, $current_orderby, $current_order, $extra = array() ) {
+	$order = ( $column === $current_orderby && 'asc' === $current_order ) ? 'desc' : 'asc';
+
+	return add_query_arg(
+		array_merge(
+			$extra,
+			array(
+				'orderby' => sanitize_key( $column ),
+				'order'   => $order,
+			)
+		)
+	);
+}
+
+function dn_burst_dash_render_url_tracking_table( $args = array() ) {
+	$args = wp_parse_args(
+		$args,
+		array(
+			'group'    => 'campaign',
+			'range'    => dn_burst_dash_get_range_data(),
+			'orderby'  => 'visits',
+			'order'    => 'desc',
+			'paged'    => 1,
+			'per_page' => 25,
+		)
+	);
+
+	$group    = dn_burst_dash_sanitize_group( $args['group'] );
+	$orderby  = sanitize_key( $args['orderby'] );
+	$order    = 'asc' === strtolower( $args['order'] ) ? 'asc' : 'desc';
+	$paged    = max( 1, absint( $args['paged'] ) );
+	$per_page = max( 1, min( 100, absint( $args['per_page'] ) ) );
+	$rows     = dn_burst_dash_sort_rows( dn_burst_dash_get_url_tracking_rows( $group, $args['range'] ), $orderby, $order );
+	$total    = count( $rows );
+	$pages    = max( 1, (int) ceil( $total / $per_page ) );
+	$paged    = min( $paged, $pages );
+	$rows     = array_slice( $rows, ( $paged - 1 ) * $per_page, $per_page );
+	$columns  = array(
+		'url_param'       => esc_html__( 'URL Param', 'dn-burst-funnel-stats' ),
+		'visits'          => esc_html__( 'Visits', 'dn-burst-funnel-stats' ),
+		'add_to_cart'     => esc_html__( 'Add To Cart', 'dn-burst-funnel-stats' ),
+		'checkout'        => esc_html__( 'Checkout', 'dn-burst-funnel-stats' ),
+		'orders'          => esc_html__( 'Orders', 'dn-burst-funnel-stats' ),
+		'items'           => esc_html__( 'Items', 'dn-burst-funnel-stats' ),
+		'sales'           => esc_html__( 'Sales', 'dn-burst-funnel-stats' ),
+		'profits'         => esc_html__( 'Profits', 'dn-burst-funnel-stats' ),
+		'conversion_rate' => esc_html__( 'Conversion Rate', 'dn-burst-funnel-stats' ),
+	);
+	?>
+	<div class="dn-burst-table-wrap" data-dn-url-table data-group="<?php echo esc_attr( $group ); ?>">
+		<table class="widefat striped dn-burst-data-table">
+			<thead>
+				<tr>
+					<?php foreach ( $columns as $column_key => $label ) : ?>
+						<th scope="col">
+							<a href="<?php echo esc_url( dn_burst_dash_get_sort_url( $column_key, $orderby, $order, array( 'dn_group' => $group ) ) ); ?>" data-dn-sort="<?php echo esc_attr( $column_key ); ?>">
+								<?php echo esc_html( $label ); ?>
+								<?php if ( $column_key === $orderby ) : ?>
+									<span class="screen-reader-text">
+										<?php echo 'asc' === $order ? esc_html__( 'ascending', 'dn-burst-funnel-stats' ) : esc_html__( 'descending', 'dn-burst-funnel-stats' ); ?>
+									</span>
+								<?php endif; ?>
+							</a>
+						</th>
+					<?php endforeach; ?>
+				</tr>
+			</thead>
+			<tbody>
+				<?php if ( empty( $rows ) ) : ?>
+					<tr>
+						<td colspan="<?php echo esc_attr( count( $columns ) ); ?>"><?php esc_html_e( 'No URL tracking data is available for this period.', 'dn-burst-funnel-stats' ); ?></td>
+					</tr>
+				<?php else : ?>
+					<?php foreach ( $rows as $row ) : ?>
+						<tr>
+							<td><?php echo esc_html( $row['url_param'] ); ?></td>
+							<td><?php echo esc_html( number_format_i18n( $row['visits'] ) ); ?></td>
+							<td><?php echo esc_html( number_format_i18n( $row['add_to_cart'] ) ); ?></td>
+							<td><?php echo esc_html( number_format_i18n( $row['checkout'] ) ); ?></td>
+							<td><?php echo esc_html( number_format_i18n( $row['orders'] ) ); ?></td>
+							<td><?php echo esc_html( number_format_i18n( $row['items'] ) ); ?></td>
+							<td><?php echo wp_kses_post( dn_burst_dash_format_money( $row['sales'] ) ); ?></td>
+							<td><?php echo wp_kses_post( dn_burst_dash_format_money( $row['profits'] ) ); ?></td>
+							<td><?php echo esc_html( number_format_i18n( $row['conversion_rate'], 2 ) . '%' ); ?></td>
+						</tr>
+					<?php endforeach; ?>
+				<?php endif; ?>
+			</tbody>
+		</table>
+
+		<?php if ( $pages > 1 ) : ?>
+			<div class="tablenav bottom">
+				<div class="tablenav-pages">
+					<span class="displaying-num">
+						<?php
+						echo esc_html(
+							sprintf(
+								/* translators: %d: number of rows. */
+								_n( '%d item', '%d items', $total, 'dn-burst-funnel-stats' ),
+								$total
+							)
+						);
+						?>
+					</span>
+					<?php if ( $paged > 1 ) : ?>
+						<a class="button" href="<?php echo esc_url( add_query_arg( array( 'paged' => $paged - 1 ) ) ); ?>" data-dn-page="<?php echo esc_attr( $paged - 1 ); ?>"><?php esc_html_e( 'Previous', 'dn-burst-funnel-stats' ); ?></a>
+					<?php endif; ?>
+					<span class="paging-input"><?php echo esc_html( $paged . ' / ' . $pages ); ?></span>
+					<?php if ( $paged < $pages ) : ?>
+						<a class="button" href="<?php echo esc_url( add_query_arg( array( 'paged' => $paged + 1 ) ) ); ?>" data-dn-page="<?php echo esc_attr( $paged + 1 ); ?>"><?php esc_html_e( 'Next', 'dn-burst-funnel-stats' ); ?></a>
+					<?php endif; ?>
+				</div>
+			</div>
+		<?php endif; ?>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_render_ad_urls_tab( $range = null ) {
+	$range = is_array( $range ) ? $range : dn_burst_dash_get_range_data();
+	$group = dn_burst_dash_sanitize_group( dn_burst_dash_get_query_value( 'dn_group', 'campaign' ) );
+	?>
+	<div class="dn-burst-panel dn-burst-panel-toolbar">
+		<div>
+			<h2><?php esc_html_e( 'Ad URLs', 'dn-burst-funnel-stats' ); ?></h2>
+			<p class="description"><?php esc_html_e( 'URL parameter performance grouped by campaign, source, or medium.', 'dn-burst-funnel-stats' ); ?></p>
+		</div>
+		<fieldset class="dn-burst-radio-group" data-dn-url-group>
+			<legend class="screen-reader-text"><?php esc_html_e( 'Group URL tracking data by', 'dn-burst-funnel-stats' ); ?></legend>
+			<label><input type="radio" name="dn_group" value="campaign" <?php checked( 'campaign', $group ); ?> /> <?php esc_html_e( 'Campaign', 'dn-burst-funnel-stats' ); ?></label>
+			<label><input type="radio" name="dn_group" value="source" <?php checked( 'source', $group ); ?> /> <?php esc_html_e( 'Source', 'dn-burst-funnel-stats' ); ?></label>
+			<label><input type="radio" name="dn_group" value="medium" <?php checked( 'medium', $group ); ?> /> <?php esc_html_e( 'Medium', 'dn-burst-funnel-stats' ); ?></label>
+		</fieldset>
+	</div>
+
+	<div data-dn-url-table-region>
+		<?php
+		dn_burst_dash_render_url_tracking_table(
+			array(
+				'group'   => $group,
+				'range'   => $range,
+				'orderby' => sanitize_key( dn_burst_dash_get_query_value( 'orderby', 'visits' ) ),
+				'order'   => sanitize_key( dn_burst_dash_get_query_value( 'order', 'desc' ) ),
+				'paged'   => absint( dn_burst_dash_get_query_value( 'paged', 1 ) ),
+			)
+		);
+		?>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_get_dashboard_simple_rows( $tab, $range ) {
+	$rows = array();
+
+	if ( 'countries' === $tab ) {
+		foreach ( dn_burst_dash_get_sales_orders_for_period( $range['current_start'], $range['current_end'] ) as $order ) {
+			$key = $order->get_billing_country() ? $order->get_billing_country() : 'N/A';
+
+			if ( ! isset( $rows[ $key ] ) ) {
+				$rows[ $key ] = array( 'name' => $key, 'orders' => 0, 'items' => 0, 'sales' => 0 );
+			}
+
+			$rows[ $key ]['orders']++;
+			$rows[ $key ]['items'] += (int) $order->get_item_count();
+			$rows[ $key ]['sales'] += (float) $order->get_total();
+		}
+	} elseif ( 'products' === $tab || 'brands' === $tab ) {
+		foreach ( dn_burst_dash_get_sales_orders_for_period( $range['current_start'], $range['current_end'] ) as $order ) {
+			foreach ( $order->get_items() as $item ) {
+				$product = $item->get_product();
+				$name    = $item->get_name();
+
+				if ( 'brands' === $tab ) {
+					$name = esc_html__( 'Unassigned', 'dn-burst-funnel-stats' );
+
+					if ( $product ) {
+						$terms = wp_get_post_terms( $product->get_id(), array( 'product_brand', 'pa_brand' ), array( 'fields' => 'names' ) );
+						if ( ! is_wp_error( $terms ) && ! empty( $terms ) ) {
+							$name = (string) reset( $terms );
+						}
+					}
+				}
+
+				if ( ! isset( $rows[ $name ] ) ) {
+					$rows[ $name ] = array( 'name' => $name, 'orders' => 0, 'items' => 0, 'sales' => 0 );
+				}
+
+				$rows[ $name ]['orders']++;
+				$rows[ $name ]['items'] += (int) $item->get_quantity();
+				$rows[ $name ]['sales'] += (float) $item->get_total();
+			}
+		}
+	} elseif ( 'devices' === $tab && dn_burst_dash_burst_table_exists() ) {
+		global $wpdb;
+
+		$columns       = dn_burst_dash_get_burst_columns();
+		$device_column = '';
+
+		foreach ( array( 'device_type', 'device', 'browser' ) as $candidate ) {
+			if ( in_array( $candidate, $columns, true ) ) {
+				$device_column = $candidate;
+				break;
+			}
+		}
+
+		if ( $device_column ) {
+			$table   = dn_burst_dash_get_burst_table_name();
+			$results = $wpdb->get_results(
+				$wpdb->prepare(
+					"
+					SELECT {$device_column} AS name, COUNT(DISTINCT uid) AS visits
+					FROM {$table}
+					WHERE time >= %d AND time <= %d
+					GROUP BY {$device_column}
+					ORDER BY visits DESC
+					LIMIT 50
+					",
+					$range['current_start'],
+					$range['current_end']
+				),
+				ARRAY_A
+			);
+
+			foreach ( (array) $results as $result ) {
+				$rows[] = array(
+					'name'   => ! empty( $result['name'] ) ? $result['name'] : 'N/A',
+					'visits' => (int) $result['visits'],
+				);
+			}
+		}
+	}
+
+	if ( array_keys( $rows ) !== range( 0, count( $rows ) - 1 ) ) {
+		$rows = array_values( $rows );
+	}
+
+	return dn_burst_dash_sort_rows( $rows, 'sales', 'desc' );
+}
+
+function dn_burst_dash_render_simple_tab( $tab, $range ) {
+	$tabs  = dn_burst_dash_get_tabs();
+	$rows  = dn_burst_dash_get_dashboard_simple_rows( $tab, $range );
+	$title = isset( $tabs[ $tab ] ) ? $tabs[ $tab ] : esc_html__( 'Report', 'dn-burst-funnel-stats' );
+	?>
+	<div class="dn-burst-panel">
+		<h2><?php echo esc_html( $title ); ?></h2>
+		<table class="widefat striped dn-burst-data-table">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Name', 'dn-burst-funnel-stats' ); ?></th>
+					<?php if ( 'devices' === $tab ) : ?>
+						<th scope="col"><?php esc_html_e( 'Visits', 'dn-burst-funnel-stats' ); ?></th>
+					<?php else : ?>
+						<th scope="col"><?php esc_html_e( 'Orders', 'dn-burst-funnel-stats' ); ?></th>
+						<th scope="col"><?php esc_html_e( 'Items', 'dn-burst-funnel-stats' ); ?></th>
+						<th scope="col"><?php esc_html_e( 'Sales', 'dn-burst-funnel-stats' ); ?></th>
+					<?php endif; ?>
+				</tr>
+			</thead>
+			<tbody>
+				<?php if ( empty( $rows ) ) : ?>
+					<tr><td colspan="<?php echo esc_attr( 'devices' === $tab ? 2 : 4 ); ?>"><?php esc_html_e( 'No data is available for this period.', 'dn-burst-funnel-stats' ); ?></td></tr>
+				<?php else : ?>
+					<?php foreach ( $rows as $row ) : ?>
+						<tr>
+							<td><?php echo esc_html( $row['name'] ); ?></td>
+							<?php if ( 'devices' === $tab ) : ?>
+								<td><?php echo esc_html( number_format_i18n( $row['visits'] ) ); ?></td>
+							<?php else : ?>
+								<td><?php echo esc_html( number_format_i18n( $row['orders'] ) ); ?></td>
+								<td><?php echo esc_html( number_format_i18n( $row['items'] ) ); ?></td>
+								<td><?php echo wp_kses_post( dn_burst_dash_format_money( $row['sales'] ) ); ?></td>
+							<?php endif; ?>
+						</tr>
+					<?php endforeach; ?>
+				<?php endif; ?>
+			</tbody>
+		</table>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_get_date_keys_for_range( $range ) {
+	$tz       = wp_timezone();
+	$start_dt = ( new DateTimeImmutable( '@' . (int) $range['current_start'] ) )->setTimezone( $tz )->setTime( 0, 0, 0 );
+	$end_dt   = ( new DateTimeImmutable( '@' . (int) $range['current_end'] ) )->setTimezone( $tz )->setTime( 0, 0, 0 );
+	$keys     = array();
+
+	for ( $cursor = $start_dt; $cursor <= $end_dt; $cursor = $cursor->modify( '+1 day' ) ) {
+		$keys[ $cursor->format( 'Y-m-d' ) ] = array(
+			'label' => $cursor->format( 'M j' ),
+			'ymd'   => $cursor->format( 'Y_m_d' ),
+		);
+	}
+
+	return $keys;
+}
+
+function dn_burst_dash_get_daily_burst_visits( $range ) {
+	global $wpdb;
+
+	$daily = array();
+
+	if ( ! dn_burst_dash_burst_table_exists() ) {
+		return $daily;
+	}
+
+	$table = dn_burst_dash_get_burst_table_name();
+	$rows  = $wpdb->get_results(
+		$wpdb->prepare(
+			"
+			SELECT DATE(FROM_UNIXTIME(time)) AS day_key, COUNT(DISTINCT uid) AS visits
+			FROM {$table}
+			WHERE time >= %d AND time <= %d
+			GROUP BY day_key
+			",
+			$range['current_start'],
+			$range['current_end']
+		),
+		ARRAY_A
+	);
+
+	foreach ( (array) $rows as $row ) {
+		if ( ! empty( $row['day_key'] ) ) {
+			$daily[ $row['day_key'] ] = (int) $row['visits'];
+		}
+	}
+
+	return $daily;
+}
+
+function dn_burst_dash_get_daily_order_stats( $range ) {
+	$daily = array();
+
+	foreach ( dn_burst_dash_get_sales_orders_for_period( $range['current_start'], $range['current_end'] ) as $order ) {
+		if ( ! $order instanceof WC_Order || ! $order->get_date_created() ) {
+			continue;
+		}
+
+		$key = $order->get_date_created()->date_i18n( 'Y-m-d' );
+
+		if ( ! isset( $daily[ $key ] ) ) {
+			$daily[ $key ] = array(
+				'orders'  => 0,
+				'sales'   => 0,
+				'profits' => 0,
+			);
+		}
+
+		$total = (float) $order->get_total();
+
+		$daily[ $key ]['orders']++;
+		$daily[ $key ]['sales']   += max( 0, $total - (float) $order->get_total_refunded() );
+		$daily[ $key ]['profits'] += max( 0, $total - (float) $order->get_total_refunded() - (float) $order->get_shipping_total() );
+	}
+
+	return $daily;
+}
+
+function dn_burst_dash_get_chart_data( $range = null ) {
+	$range     = is_array( $range ) ? $range : dn_burst_dash_get_range_data();
+	$cache_key = dn_burst_dash_get_cache_key( 'charts', $range );
+	$cached    = get_transient( $cache_key );
+
+	if ( is_array( $cached ) ) {
+		return $cached;
+	}
+
+	$date_keys   = dn_burst_dash_get_date_keys_for_range( $range );
+	$visits_by_day = dn_burst_dash_get_daily_burst_visits( $range );
+	$orders_by_day = dn_burst_dash_get_daily_order_stats( $range );
+	$labels      = array();
+	$sales       = array();
+	$profits     = array();
+	$orders      = array();
+	$conversions = array();
+	$daily_visits = array();
+
+	foreach ( $date_keys as $day_key => $date_data ) {
+		$visits     = isset( $visits_by_day[ $day_key ] ) ? (int) $visits_by_day[ $day_key ] : 0;
+		$order_data = isset( $orders_by_day[ $day_key ] ) ? $orders_by_day[ $day_key ] : array( 'orders' => 0, 'sales' => 0, 'profits' => 0 );
+
+		$labels[]      = $date_data['label'];
+		$sales[]       = round( (float) $order_data['sales'], 2 );
+		$profits[]     = round( (float) $order_data['profits'], 2 );
+		$orders[]      = (int) $order_data['orders'];
+		$daily_visits[] = $visits;
+		$conversions[] = $visits > 0 ? round( ( (int) $order_data['orders'] / $visits ) * 100, 2 ) : 0;
+	}
+
+	$data       = dn_burst_dash_build_data();
+	$top_rows   = array_slice( dn_burst_dash_sort_rows( dn_burst_dash_get_url_tracking_rows( 'campaign', $range ), 'sales', 'desc' ), 0, 8 );
+	$top_labels = array();
+	$top_sales  = array();
+
+	foreach ( $top_rows as $row ) {
+		$top_labels[] = (string) $row['url_param'];
+		$top_sales[]  = round( (float) $row['sales'], 2 );
+	}
+
+	$chart_data = array(
+		'labels'     => $labels,
+		'sales'      => array(
+			'netSales' => $sales,
+			'profits'  => $profits,
+			'orders'   => $orders,
+		),
+		'funnel'     => array(
+			'labels' => array(
+				esc_html__( 'Visits', 'dn-burst-funnel-stats' ),
+				esc_html__( 'Add To Cart', 'dn-burst-funnel-stats' ),
+				esc_html__( 'Checkout', 'dn-burst-funnel-stats' ),
+				esc_html__( 'Orders', 'dn-burst-funnel-stats' ),
+			),
+			'values' => array(
+				(int) $data['cards']['visits']['main'],
+				(int) $data['cards']['atc_events']['main'],
+				(int) $data['cards']['checkout']['main'],
+				(int) $data['current_wc']['orders'],
+			),
+		),
+		'conversion' => array(
+			'labels' => $labels,
+			'values' => $conversions,
+		),
+		'topUrls'    => array(
+			'labels' => $top_labels,
+			'values' => $top_sales,
+		),
+	);
+
+	set_transient( $cache_key, $chart_data, 10 * MINUTE_IN_SECONDS );
+
+	return $chart_data;
+}
+
+function dn_burst_dash_render_chart_panel( $title, $type, $chart_data ) {
+	?>
+	<div class="dn-burst-panel dn-burst-chart-panel">
+		<h2><?php echo esc_html( $title ); ?></h2>
+		<canvas
+			class="dn-burst-chart"
+			height="220"
+			data-dn-chart="<?php echo esc_attr( $type ); ?>"
+			data-chart="<?php echo esc_attr( wp_json_encode( $chart_data ) ); ?>"
+		></canvas>
+		<p class="dn-burst-chart-empty" hidden><?php esc_html_e( 'No chart data is available for this period.', 'dn-burst-funnel-stats' ); ?></p>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_render_charts( $range ) {
+	$chart_data = dn_burst_dash_get_chart_data( $range );
+	?>
+	<div class="dn-burst-chart-grid">
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Sales / Orders', 'dn-burst-funnel-stats' ), 'sales', $chart_data['sales'] + array( 'labels' => $chart_data['labels'] ) ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Funnel', 'dn-burst-funnel-stats' ), 'bar', $chart_data['funnel'] ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Conversion Rate', 'dn-burst-funnel-stats' ), 'line', $chart_data['conversion'] ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Top Campaigns by Sales', 'dn-burst-funnel-stats' ), 'bar', $chart_data['topUrls'] ); ?>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_render_date_picker( $range, $page_slug, $tab = 'overview' ) {
+	$presets = function_exists( 'dn_bfs_get_date_presets' ) ? dn_bfs_get_date_presets() : array();
+	?>
+	<div class="dn-burst-date-control" data-dn-date-control>
+		<button type="button" class="button dn-burst-date-toggle" data-dn-date-toggle>
+			<span class="dn-burst-date-title">
+				<?php
+				echo esc_html(
+					sprintf(
+						/* translators: %1$s: preset label, %2$s: formatted date range. */
+						__( '%1$s (%2$s)', 'dn-burst-funnel-stats' ),
+						$range['current_label'],
+						$range['current_range_label']
+					)
+				);
+				?>
+			</span>
+			<?php if ( 'none' !== $range['compare'] ) : ?>
+				<span class="dn-burst-date-compare"><?php echo esc_html( $range['compare_label'] . ' (' . $range['previous_range_label'] . ')' ); ?></span>
+			<?php endif; ?>
+		</button>
+
+		<form method="get" class="dn-burst-date-popover" data-dn-date-popover hidden>
+			<input type="hidden" name="page" value="<?php echo esc_attr( $page_slug ); ?>" />
+			<input type="hidden" name="dn_tab" value="<?php echo esc_attr( $tab ); ?>" />
+			<h2><?php esc_html_e( 'Select a date range', 'dn-burst-funnel-stats' ); ?></h2>
+			<div class="dn-burst-date-tabs">
+				<button type="button" class="button is-active" data-dn-date-mode="presets"><?php esc_html_e( 'Presets', 'dn-burst-funnel-stats' ); ?></button>
+				<button type="button" class="button" data-dn-date-mode="custom"><?php esc_html_e( 'Custom', 'dn-burst-funnel-stats' ); ?></button>
+			</div>
+
+			<div class="dn-burst-date-pane is-active" data-dn-date-pane="presets">
+				<?php foreach ( $presets as $period_key => $period_label ) : ?>
+					<?php if ( 'custom' === $period_key ) : ?>
+						<?php continue; ?>
+					<?php endif; ?>
+					<label>
+						<input type="radio" name="dn_period" value="<?php echo esc_attr( $period_key ); ?>" <?php checked( $range['period'], $period_key ); ?> />
+						<?php echo esc_html( $period_label ); ?>
+					</label>
+				<?php endforeach; ?>
+			</div>
+
+			<div class="dn-burst-date-pane" data-dn-date-pane="custom">
+				<label class="dn-burst-custom-radio">
+					<input type="radio" name="dn_period" value="custom" <?php checked( $range['period'], 'custom' ); ?> />
+					<?php esc_html_e( 'Custom range', 'dn-burst-funnel-stats' ); ?>
+				</label>
+				<label>
+					<?php esc_html_e( 'Start date', 'dn-burst-funnel-stats' ); ?>
+					<input type="date" name="dn_start" value="<?php echo esc_attr( $range['custom_start'] ); ?>" />
+				</label>
+				<label>
+					<?php esc_html_e( 'End date', 'dn-burst-funnel-stats' ); ?>
+					<input type="date" name="dn_end" value="<?php echo esc_attr( $range['custom_end'] ); ?>" />
+				</label>
+			</div>
+
+			<fieldset class="dn-burst-compare-options">
+				<legend><?php esc_html_e( 'Compare', 'dn-burst-funnel-stats' ); ?></legend>
+				<label><input type="radio" name="dn_compare" value="previous_period" <?php checked( $range['compare'], 'previous_period' ); ?> /> <?php esc_html_e( 'Previous period', 'dn-burst-funnel-stats' ); ?></label>
+				<label><input type="radio" name="dn_compare" value="previous_year" <?php checked( $range['compare'], 'previous_year' ); ?> /> <?php esc_html_e( 'Previous year', 'dn-burst-funnel-stats' ); ?></label>
+				<label><input type="radio" name="dn_compare" value="none" <?php checked( $range['compare'], 'none' ); ?> /> <?php esc_html_e( 'None', 'dn-burst-funnel-stats' ); ?></label>
+			</fieldset>
+
+			<button type="submit" class="button button-primary" data-dn-date-update><?php esc_html_e( 'Update', 'dn-burst-funnel-stats' ); ?></button>
+		</form>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_get_dashboard_url( $page_slug, $tab, $range ) {
+	$args = array(
+		'page'       => sanitize_key( $page_slug ),
+		'dn_tab'     => sanitize_key( $tab ),
+		'dn_period'  => sanitize_key( $range['period'] ),
+		'dn_compare' => sanitize_key( $range['compare'] ),
+	);
+
+	if ( 'custom' === $range['period'] ) {
+		$args['dn_start'] = sanitize_text_field( $range['custom_start'] );
+		$args['dn_end']   = sanitize_text_field( $range['custom_end'] );
+	}
+
+	return add_query_arg( $args, admin_url( 'admin.php' ) );
+}
+
+function dn_burst_dash_get_data_status() {
+	$last_update = (int) get_option( 'dn_burst_funnel_stats_last_refresh', 0 );
+	$next_update = wp_next_scheduled( 'dn_burst_funnel_stats_refresh_cache' );
+
+	return array(
+		'last_update' => $last_update,
+		'next_update' => $next_update,
+	);
+}
+
+function dn_burst_dash_render_data_status_panel() {
+	$status = dn_burst_dash_get_data_status();
+	?>
+	<div class="dn-burst-panel dn-burst-status-panel" data-dn-status-panel>
+		<div>
+			<h2><?php esc_html_e( 'Data status', 'dn-burst-funnel-stats' ); ?></h2>
+			<p>
+				<strong><?php esc_html_e( 'Last updated', 'dn-burst-funnel-stats' ); ?>:</strong>
+				<span data-dn-last-update>
+					<?php echo $status['last_update'] ? esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $status['last_update'] ) ) : esc_html__( 'Not refreshed yet', 'dn-burst-funnel-stats' ); ?>
+				</span>
+			</p>
+			<p>
+				<strong><?php esc_html_e( 'Next update', 'dn-burst-funnel-stats' ); ?>:</strong>
+				<span data-dn-next-update>
+					<?php echo $status['next_update'] ? esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $status['next_update'] ) ) : esc_html__( 'Not scheduled', 'dn-burst-funnel-stats' ); ?>
+				</span>
+			</p>
+		</div>
+		<button type="button" class="button" data-dn-update-now><?php esc_html_e( 'Update now', 'dn-burst-funnel-stats' ); ?></button>
+		<div class="dn-burst-status-message" data-dn-status-message aria-live="polite"></div>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_render_overview_tab( $data ) {
+	$compare_label = $data['range']['compare_label'];
+	?>
+	<div class="dn-burst-grid">
+		<?php
+		foreach ( $data['cards'] as $card ) {
+			dn_burst_dash_render_card( $card, $compare_label );
+		}
+		?>
+	</div>
+
+	<?php dn_burst_dash_render_charts( $data['range'] ); ?>
+	<?php dn_burst_dash_render_data_status_panel(); ?>
+
+	<div class="dn-burst-meta">
+		<strong><?php esc_html_e( 'Matching paths:', 'dn-burst-funnel-stats' ); ?></strong><br />
+		<?php esc_html_e( 'Cart:', 'dn-burst-funnel-stats' ); ?> <code><?php echo esc_html( $data['paths']['cart'] ); ?></code><br />
+		<?php esc_html_e( 'Checkout:', 'dn-burst-funnel-stats' ); ?> <code><?php echo esc_html( $data['paths']['checkout'] ); ?></code><br />
+		<?php esc_html_e( 'Payment contains:', 'dn-burst-funnel-stats' ); ?> <code>/order-pay</code>, <code>payment</code>, <code>pay-for-order</code><br /><br />
+		<?php esc_html_e( 'Product base:', 'dn-burst-funnel-stats' ); ?> <code><?php echo esc_html( $data['paths']['product_base'] ); ?></code><br />
+		<strong><?php esc_html_e( 'Note:', 'dn-burst-funnel-stats' ); ?></strong>
+		<?php esc_html_e( 'Visits, Add To Cart, Checkout, and payment-related metrics use Burst page visit data where available. Orders, items, sales, and balance metrics use WooCommerce orders.', 'dn-burst-funnel-stats' ); ?>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_render_tab_content( $tab, $range = null ) {
+	$tab   = dn_burst_dash_sanitize_tab( $tab );
+	$range = is_array( $range ) ? $range : dn_burst_dash_get_range_data();
+
+	if ( ! dn_burst_dash_burst_table_exists() ) {
+		printf(
+			'<div class="dn-burst-empty notice notice-warning"><p>%s</p></div>',
+			esc_html__( 'The Burst Statistics table is not available yet. Visit data and URL tracking reports will appear after Burst starts recording data.', 'dn-burst-funnel-stats' )
+		);
+
+		if ( in_array( $tab, array( 'overview', 'ad-urls', 'devices' ), true ) ) {
+			return;
+		}
+	}
+
+	if ( 'overview' === $tab ) {
+		dn_burst_dash_render_overview_tab( dn_burst_dash_build_data() );
+		return;
+	}
+
+	if ( 'ad-urls' === $tab ) {
+		dn_burst_dash_render_ad_urls_tab( $range );
+		return;
+	}
+
+	dn_burst_dash_render_simple_tab( $tab, $range );
+}
+
 /**
  * =========================
  * Render
@@ -1166,48 +1920,53 @@ function dn_burst_dash_render_page() {
 		return;
 	}
 
-	if ( ! dn_burst_dash_burst_table_exists() ) {
-		echo '<div class="wrap"><div class="notice notice-error"><p>Không tìm thấy bảng Burst Statistics.</p></div></div>';
-		return;
-	}
-
-	$data = dn_burst_dash_build_data();
-	$range = $data['range']['range'];
-	$compare_label = $data['range']['compare_label'];
+	$range_data = dn_burst_dash_get_range_data();
+	$range      = $range_data['range'];
+	$tab        = dn_burst_dash_sanitize_tab( dn_burst_dash_get_query_value( 'dn_tab', 'overview' ) );
+	$tabs       = dn_burst_dash_get_tabs();
 	?>
-	<div class="wrap dn-burst-wrap">
+	<div class="wrap dn-burst-wrap" data-dn-dashboard>
 		<div class="dn-burst-toolbar">
-			<h1 class="dn-burst-title">Burst Funnel Stats</h1>
-
-			<div class="dn-burst-filters">
-				<a class="<?php echo ( 'today' === $range ) ? 'is-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=dn-burst-funnel-stats&dn_range=today' ) ); ?>">Today</a>
-				<a class="<?php echo ( 'yesterday' === $range ) ? 'is-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=dn-burst-funnel-stats&dn_range=yesterday' ) ); ?>">Yesterday</a>
-				<a class="<?php echo ( '7d' === $range ) ? 'is-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=dn-burst-funnel-stats&dn_range=7d' ) ); ?>">7 days</a>
-				<a class="<?php echo ( '30d' === $range ) ? 'is-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=dn-burst-funnel-stats&dn_range=30d' ) ); ?>">30 days</a>
-		    </div>
+			<h1 class="dn-burst-title"><?php esc_html_e( 'Funnel Stats', 'dn-burst-funnel-stats' ); ?></h1>
+			<?php dn_burst_dash_render_date_picker( $range_data, 'dn-burst-funnel-stats', $tab ); ?>
 		</div>
 
-		<div class="dn-burst-grid">
-			<?php
-			foreach ( $data['cards'] as $card ) {
-				dn_burst_dash_render_card( $card, $compare_label );
-			}
-			?>
-		</div>
+		<nav class="nav-tab-wrapper dn-burst-tabs" aria-label="<?php echo esc_attr__( 'Dashboard tabs', 'dn-burst-funnel-stats' ); ?>">
+			<?php foreach ( $tabs as $tab_key => $tab_label ) : ?>
+				<a
+					href="<?php echo esc_url( dn_burst_dash_get_dashboard_url( 'dn-burst-funnel-stats', $tab_key, $range_data ) ); ?>"
+					class="nav-tab <?php echo $tab_key === $tab ? 'nav-tab-active' : ''; ?>"
+					data-dn-tab="<?php echo esc_attr( $tab_key ); ?>"
+				>
+					<?php echo esc_html( $tab_label ); ?>
+				</a>
+			<?php endforeach; ?>
+		</nav>
 
-		<div class="dn-burst-meta">
-			<strong>Matching paths:</strong><br>
-			Cart: <code><?php echo esc_html( $data['paths']['cart'] ); ?></code><br>
-			Checkout: <code><?php echo esc_html( $data['paths']['checkout'] ); ?></code><br>
-			Payment contains: <code>/order-pay</code>, <code>payment</code>, <code>pay-for-order</code><br><br>
-			Product base: <code><?php echo esc_html( $data['paths']['product_base'] ); ?></code><br>
-			<strong>Lưu ý:</strong> các card như Visits / Add To Cart / Checkout / Add Payment Info lấy từ Burst page visits.
-			Các card Orders/AOV, Items/AOI, Pending Payment, Sales, Paid/Balance... lấy từ WooCommerce orders.
-			Created Campaigns hiện đang để 0 vì snippet này chưa nối sang nguồn campaign riêng.<br>
-        @2026
+		<div class="dn-burst-tab-content" data-dn-tab-content aria-live="polite">
+			<?php dn_burst_dash_render_tab_content( $tab, $range_data ); ?>
 		</div>
 	</div>
 	<?php
 }
 
+function dn_burst_dash_render_url_tracking_page() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
 
+	$range_data = dn_burst_dash_get_range_data();
+	$range      = $range_data['range'];
+	?>
+	<div class="wrap dn-burst-wrap" data-dn-dashboard>
+		<div class="dn-burst-toolbar">
+			<h1 class="dn-burst-title"><?php esc_html_e( 'URL Tracking', 'dn-burst-funnel-stats' ); ?></h1>
+			<?php dn_burst_dash_render_date_picker( $range_data, 'dn-burst-funnel-stats-url-tracking', 'ad-urls' ); ?>
+		</div>
+
+		<div class="dn-burst-tab-content" data-dn-tab-content aria-live="polite">
+			<?php dn_burst_dash_render_ad_urls_tab( $range_data ); ?>
+		</div>
+	</div>
+	<?php
+}

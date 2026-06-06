@@ -3,7 +3,7 @@
  * Plugin Name: DN Burst Funnel Stats
  * Plugin URI: https://github.com/daunampc/dn-burst-funnel-stats.git
  * Description: Funnel dashboard for WooCommerce using Burst Pro page visit data and WooCommerce order metrics.
- * Version: 1.0.7
+ * Version: 2.0.0
  * Author: toshstack.dev
  * Author URI: https://toshstack.dev
  * Requires at least: 6.5
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'DN_BURST_FUNNEL_STATS_VERSION', '1.0.7' );
+define( 'DN_BURST_FUNNEL_STATS_VERSION', '2.0.0' );
 define( 'DN_BURST_FUNNEL_STATS_FILE', __FILE__ );
 define( 'DN_BURST_FUNNEL_STATS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'DN_BURST_FUNNEL_STATS_URL', plugin_dir_url( __FILE__ ) );
@@ -31,6 +31,21 @@ define( 'DN_BURST_FUNNEL_STATS_URL', plugin_dir_url( __FILE__ ) );
 define( 'DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats' );
 
 define( 'DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
+define( 'DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '3' );
+
+/**
+ * Load translations.
+ *
+ * @return void
+ */
+function dn_burst_funnel_stats_load_textdomain() {
+	load_plugin_textdomain(
+		'dn-burst-funnel-stats',
+		false,
+		dirname( DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME ) . '/languages'
+	);
+}
+add_action( 'plugins_loaded', 'dn_burst_funnel_stats_load_textdomain' );
 
 /**
  * Safely check if a plugin is active.
@@ -161,7 +176,8 @@ function dn_burst_funnel_stats_activate() {
 		wp_die(
 			esc_html(
 				sprintf(
-					'DN Burst Funnel Stats requires these plugins to be installed and active first: %s.',
+					/* translators: %s: comma-separated plugin names. */
+					__( 'DN Burst Funnel Stats requires these plugins to be installed and active first: %s.', 'dn-burst-funnel-stats' ),
 					implode( ', ', $missing )
 				)
 			),
@@ -169,6 +185,12 @@ function dn_burst_funnel_stats_activate() {
 			array( 'back_link' => true )
 		);
 	}
+
+	if ( ! function_exists( 'dn_bfs_get_tracking_settings' ) ) {
+		require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
+	}
+
+	dn_burst_funnel_stats_maybe_migrate();
 }
 register_activation_hook( __FILE__, 'dn_burst_funnel_stats_activate' );
 
@@ -185,11 +207,88 @@ function dn_burst_funnel_stats_admin_dependency_notice() {
 	}
 
 	printf(
-		'<div class="notice notice-error"><p><strong>DN Burst Funnel Stats</strong> requires these plugins to be installed and active first: %s.</p></div>',
+		'<div class="notice notice-error"><p><strong>DN Burst Funnel Stats</strong> %s %s.</p></div>',
+		esc_html__( 'requires these plugins to be installed and active first:', 'dn-burst-funnel-stats' ),
 		esc_html( implode( ', ', $missing ) )
 	);
 }
 add_action( 'admin_notices', 'dn_burst_funnel_stats_admin_dependency_notice' );
+
+/**
+ * Add plugin action links on the Plugins screen.
+ *
+ * @param array $links Existing action links.
+ * @return array
+ */
+function dn_burst_funnel_stats_plugin_action_links( $links ) {
+	$dashboard_link = sprintf(
+		'<a href="%1$s">%2$s</a>',
+		esc_url( admin_url( 'admin.php?page=dn-burst-funnel-stats' ) ),
+		esc_html__( 'Dashboard', 'dn-burst-funnel-stats' )
+	);
+	$settings_link  = sprintf(
+		'<a href="%1$s">%2$s</a>',
+		esc_url( admin_url( 'admin.php?page=dn-burst-funnel-stats-settings' ) ),
+		esc_html__( 'Settings', 'dn-burst-funnel-stats' )
+	);
+
+	array_unshift( $links, $settings_link );
+	array_unshift( $links, $dashboard_link );
+
+	return $links;
+}
+add_filter( 'plugin_action_links_' . DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME, 'dn_burst_funnel_stats_plugin_action_links' );
+
+/**
+ * Store lightweight migration/schema metadata.
+ *
+ * @return void
+ */
+function dn_burst_funnel_stats_maybe_migrate() {
+	$current_schema = (string) get_option( 'dn_burst_funnel_stats_schema_version', '1' );
+
+	if ( version_compare( $current_schema, DN_BURST_FUNNEL_STATS_SCHEMA_VERSION, '>=' ) ) {
+		return;
+	}
+
+	if ( false === get_option( 'dn_burst_funnel_stats_tracking_settings', false ) ) {
+		update_option(
+			'dn_burst_funnel_stats_tracking_settings',
+			array(
+				'page_tracking_mode'     => 'full',
+				'selected_page_ids'      => array(),
+				'product_tracking_mode'  => 'all',
+				'selected_product_ids'   => array(),
+				'excluded_ips'           => array(),
+				'invalid_excluded_ips'   => array(),
+				'exclude_bots'           => 1,
+				'custom_bot_user_agents' => array(),
+				'default_date_range'     => 'month_to_date',
+				'default_compare'        => 'previous_year',
+				'tracking_enabled'       => 1,
+			),
+			false
+		);
+	} elseif ( function_exists( 'dn_bfs_get_tracking_settings' ) ) {
+		update_option(
+			'dn_burst_funnel_stats_tracking_settings',
+			dn_bfs_get_tracking_settings(),
+			false
+		);
+	}
+
+	if ( false === get_option( 'dn_burst_funnel_stats_url_tracking_settings', false ) ) {
+		update_option(
+			'dn_burst_funnel_stats_url_tracking_settings',
+			array(
+				'default_group' => 'campaign',
+			),
+			false
+		);
+	}
+
+	update_option( 'dn_burst_funnel_stats_schema_version', DN_BURST_FUNNEL_STATS_SCHEMA_VERSION, false );
+}
 
 /**
  * Bootstrap plugin after dependencies are available.
@@ -201,7 +300,16 @@ function dn_burst_funnel_stats_bootstrap() {
 		return;
 	}
 
+	require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
+	require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/date-ranges.php';
 	require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/dashboard.php';
+	require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin-menu.php';
+	require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/settings.php';
+	require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/import-export.php';
+	require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/ajax.php';
+
+	dn_burst_funnel_stats_maybe_migrate();
+	dn_burst_dash_schedule_refresh_event();
 }
 add_action( 'plugins_loaded', 'dn_burst_funnel_stats_bootstrap' );
 
