@@ -1736,11 +1736,37 @@ function dn_burst_dash_get_chart_data( $range = null ) {
 	$chart_data = array(
 		'labels'     => $labels,
 		'sales'      => array(
+			'labels'   => $labels,
+			'format'   => 'money',
 			'netSales' => $sales,
 			'profits'  => $profits,
 			'orders'   => $orders,
+			'series'   => array(
+				array(
+					'label'  => esc_html__( 'Net sales', 'dn-burst-funnel-stats' ),
+					'values' => $sales,
+					'color'  => '#2271b1',
+					'format' => 'money',
+					'axis'   => 'left',
+				),
+				array(
+					'label'  => esc_html__( 'Profit', 'dn-burst-funnel-stats' ),
+					'values' => $profits,
+					'color'  => '#00a32a',
+					'format' => 'money',
+					'axis'   => 'left',
+				),
+				array(
+					'label'  => esc_html__( 'Orders', 'dn-burst-funnel-stats' ),
+					'values' => $orders,
+					'color'  => '#7f54b3',
+					'format' => 'integer',
+					'axis'   => 'right',
+				),
+			),
 		),
 		'funnel'     => array(
+			'format' => 'integer',
 			'labels' => array(
 				esc_html__( 'Visits', 'dn-burst-funnel-stats' ),
 				esc_html__( 'Add To Cart', 'dn-burst-funnel-stats' ),
@@ -1757,10 +1783,30 @@ function dn_burst_dash_get_chart_data( $range = null ) {
 		'conversion' => array(
 			'labels' => $labels,
 			'values' => $conversions,
+			'format' => 'percent',
+			'series' => array(
+				array(
+					'label'  => esc_html__( 'Conversion rate', 'dn-burst-funnel-stats' ),
+					'values' => $conversions,
+					'color'  => '#d63638',
+					'format' => 'percent',
+					'axis'   => 'left',
+				),
+			),
 		),
 		'topUrls'    => array(
 			'labels' => $top_labels,
 			'values' => $top_sales,
+			'format' => 'money',
+			'series' => array(
+				array(
+					'label'  => esc_html__( 'Sales', 'dn-burst-funnel-stats' ),
+					'values' => $top_sales,
+					'color'  => '#2271b1',
+					'format' => 'money',
+					'axis'   => 'left',
+				),
+			),
 		),
 	);
 
@@ -1769,29 +1815,275 @@ function dn_burst_dash_get_chart_data( $range = null ) {
 	return $chart_data;
 }
 
-function dn_burst_dash_render_chart_panel( $title, $type, $chart_data ) {
+function dn_burst_dash_chart_series_total( $series ) {
+	$total = 0;
+
+	foreach ( (array) $series as $value ) {
+		$total += (float) $value;
+	}
+
+	return $total;
+}
+
+function dn_burst_dash_format_chart_value( $value, $format = 'integer' ) {
+	if ( 'money' === $format ) {
+		return dn_burst_dash_format_money( $value );
+	}
+
+	if ( 'percent' === $format ) {
+		return number_format_i18n( (float) $value, 1 ) . '%';
+	}
+
+	return number_format_i18n( (float) $value );
+}
+
+function dn_burst_dash_get_chart_subtitle( $type ) {
+	$subtitles = array(
+		'sales'      => esc_html__( 'Net sales, profit, and order volume for the selected range.', 'dn-burst-funnel-stats' ),
+		'funnel'     => esc_html__( 'Step-by-step movement from visits through completed orders.', 'dn-burst-funnel-stats' ),
+		'conversion' => esc_html__( 'Daily order conversion from tracked visits.', 'dn-burst-funnel-stats' ),
+		'top-sales'  => esc_html__( 'Campaign URL parameters ranked by WooCommerce sales.', 'dn-burst-funnel-stats' ),
+	);
+
+	return isset( $subtitles[ $type ] ) ? $subtitles[ $type ] : '';
+}
+
+function dn_burst_dash_get_chart_total( $type, $chart_data ) {
+	if ( 'sales' === $type && isset( $chart_data['netSales'] ) ) {
+		return dn_burst_dash_format_money( dn_burst_dash_chart_series_total( $chart_data['netSales'] ) );
+	}
+
+	if ( 'conversion' === $type && ! empty( $chart_data['values'] ) ) {
+		$values = array_map( 'floatval', (array) $chart_data['values'] );
+		$count  = count( $values );
+
+		return $count > 0 ? dn_burst_dash_format_chart_value( array_sum( $values ) / $count, 'percent' ) : '';
+	}
+
+	if ( 'top-sales' === $type && isset( $chart_data['values'] ) ) {
+		return dn_burst_dash_format_money( dn_burst_dash_chart_series_total( $chart_data['values'] ) );
+	}
+
+	if ( 'funnel' === $type && ! empty( $chart_data['values'] ) ) {
+		$values = array_values( (array) $chart_data['values'] );
+
+		return dn_burst_dash_format_chart_value( end( $values ), 'integer' );
+	}
+
+	return '';
+}
+
+function dn_burst_dash_get_chart_total_label( $type ) {
+	$labels = array(
+		'sales'      => esc_html__( 'Total sales', 'dn-burst-funnel-stats' ),
+		'funnel'     => esc_html__( 'Orders', 'dn-burst-funnel-stats' ),
+		'conversion' => esc_html__( 'Avg. rate', 'dn-burst-funnel-stats' ),
+		'top-sales'  => esc_html__( 'Campaign sales', 'dn-burst-funnel-stats' ),
+	);
+
+	return isset( $labels[ $type ] ) ? $labels[ $type ] : '';
+}
+
+function dn_burst_dash_chart_has_values( $chart_data ) {
+	$values = array();
+
+	if ( ! empty( $chart_data['series'] ) ) {
+		foreach ( (array) $chart_data['series'] as $series ) {
+			$values = array_merge( $values, isset( $series['values'] ) ? (array) $series['values'] : array() );
+		}
+	} elseif ( isset( $chart_data['values'] ) ) {
+		$values = (array) $chart_data['values'];
+	}
+
+	foreach ( $values as $value ) {
+		if ( (float) $value > 0 ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function dn_burst_dash_normalize_chart_payload( $type, $chart_data ) {
+	$chart_data = is_array( $chart_data ) ? $chart_data : array();
+
+	if ( ! empty( $chart_data['series'] ) ) {
+		return $chart_data;
+	}
+
+	if ( 'sales' === $type ) {
+		$chart_data['format'] = 'money';
+		$chart_data['series'] = array();
+
+		if ( isset( $chart_data['netSales'] ) ) {
+			$chart_data['series'][] = array(
+				'label'  => esc_html__( 'Net sales', 'dn-burst-funnel-stats' ),
+				'values' => $chart_data['netSales'],
+				'color'  => '#2271b1',
+				'format' => 'money',
+				'axis'   => 'left',
+			);
+		}
+
+		if ( isset( $chart_data['profits'] ) ) {
+			$chart_data['series'][] = array(
+				'label'  => esc_html__( 'Profit', 'dn-burst-funnel-stats' ),
+				'values' => $chart_data['profits'],
+				'color'  => '#00a32a',
+				'format' => 'money',
+				'axis'   => 'left',
+			);
+		}
+
+		if ( isset( $chart_data['orders'] ) ) {
+			$chart_data['series'][] = array(
+				'label'  => esc_html__( 'Orders', 'dn-burst-funnel-stats' ),
+				'values' => $chart_data['orders'],
+				'color'  => '#7f54b3',
+				'format' => 'integer',
+				'axis'   => 'right',
+			);
+		}
+	}
+
+	if ( 'conversion' === $type && isset( $chart_data['values'] ) ) {
+		$chart_data['format'] = 'percent';
+		$chart_data['series'] = array(
+			array(
+				'label'  => esc_html__( 'Conversion rate', 'dn-burst-funnel-stats' ),
+				'values' => $chart_data['values'],
+				'color'  => '#d63638',
+				'format' => 'percent',
+				'axis'   => 'left',
+			),
+		);
+	}
+
+	if ( 'top-sales' === $type && isset( $chart_data['values'] ) ) {
+		$chart_data['format'] = 'money';
+		$chart_data['series'] = array(
+			array(
+				'label'  => esc_html__( 'Sales', 'dn-burst-funnel-stats' ),
+				'values' => $chart_data['values'],
+				'color'  => '#2271b1',
+				'format' => 'money',
+				'axis'   => 'left',
+			),
+		);
+	}
+
+	return $chart_data;
+}
+
+function dn_burst_dash_render_chart_legend( $type, $chart_data ) {
+	if ( 'funnel' === $type ) {
+		$labels = isset( $chart_data['labels'] ) ? array_values( (array) $chart_data['labels'] ) : array();
+		$values = isset( $chart_data['values'] ) ? array_values( (array) $chart_data['values'] ) : array();
+		$base   = isset( $values[0] ) ? max( 1, (float) $values[0] ) : 1;
+		$colors = array( '#2271b1', '#00a32a', '#dba617', '#7f54b3' );
+		?>
+		<div class="dn-burst-funnel-legend" aria-label="<?php echo esc_attr__( 'Funnel step details', 'dn-burst-funnel-stats' ); ?>">
+			<?php foreach ( $labels as $index => $label ) : ?>
+				<?php
+				$value          = isset( $values[ $index ] ) ? (float) $values[ $index ] : 0;
+				$previous_value = $index > 0 && isset( $values[ $index - 1 ] ) ? (float) $values[ $index - 1 ] : $base;
+				$step_rate      = $previous_value > 0 ? ( $value / $previous_value ) * 100 : 0;
+				$visit_rate     = $base > 0 ? ( $value / $base ) * 100 : 0;
+				?>
+				<div class="dn-burst-funnel-legend-row">
+					<span class="dn-burst-chart-legend-label">
+						<span class="dn-burst-chart-legend-dot" style="background-color: <?php echo esc_attr( $colors[ $index % count( $colors ) ] ); ?>"></span>
+						<span><?php echo esc_html( $label ); ?></span>
+					</span>
+					<strong><?php echo esc_html( number_format_i18n( $value ) ); ?></strong>
+					<span><?php echo esc_html( sprintf( __( '%1$s step, %2$s of visits', 'dn-burst-funnel-stats' ), number_format_i18n( $step_rate, 1 ) . '%', number_format_i18n( $visit_rate, 1 ) . '%' ) ); ?></span>
+				</div>
+			<?php endforeach; ?>
+		</div>
+		<?php
+		return;
+	}
+
+	$series = ! empty( $chart_data['series'] ) ? (array) $chart_data['series'] : array(
+		array(
+			'label'  => isset( $chart_data['label'] ) ? $chart_data['label'] : '',
+			'values' => isset( $chart_data['values'] ) ? $chart_data['values'] : array(),
+			'color'  => '#2271b1',
+			'format' => isset( $chart_data['format'] ) ? $chart_data['format'] : 'integer',
+		),
+	);
 	?>
-	<div class="dn-burst-panel dn-burst-chart-panel">
-		<h2><?php echo esc_html( $title ); ?></h2>
-		<canvas
-			class="dn-burst-chart"
-			height="220"
-			data-dn-chart="<?php echo esc_attr( $type ); ?>"
-			data-chart="<?php echo esc_attr( wp_json_encode( $chart_data ) ); ?>"
-		></canvas>
-		<p class="dn-burst-chart-empty" hidden><?php esc_html_e( 'No chart data is available for this period.', 'dn-burst-funnel-stats' ); ?></p>
+	<div class="dn-burst-chart-legend" aria-label="<?php echo esc_attr__( 'Chart legend', 'dn-burst-funnel-stats' ); ?>">
+		<?php foreach ( $series as $row ) : ?>
+			<?php
+			$label  = isset( $row['label'] ) ? (string) $row['label'] : '';
+			$format = isset( $row['format'] ) ? (string) $row['format'] : ( isset( $chart_data['format'] ) ? (string) $chart_data['format'] : 'integer' );
+			$total  = dn_burst_dash_chart_series_total( isset( $row['values'] ) ? $row['values'] : array() );
+			$color  = isset( $row['color'] ) ? (string) $row['color'] : '#2271b1';
+			?>
+			<div class="dn-burst-chart-legend-row">
+				<span class="dn-burst-chart-legend-label">
+					<span class="dn-burst-chart-legend-dot" style="background-color: <?php echo esc_attr( $color ); ?>"></span>
+					<span><?php echo esc_html( $label ); ?></span>
+				</span>
+				<strong><?php echo wp_kses_post( dn_burst_dash_format_chart_value( $total, $format ) ); ?></strong>
+			</div>
+		<?php endforeach; ?>
+	</div>
+	<?php
+}
+
+function dn_burst_dash_render_chart_panel( $title, $type, $chart_data ) {
+	$chart_data         = dn_burst_dash_normalize_chart_payload( $type, $chart_data );
+	$chart_data['type'] = $type;
+	$total              = dn_burst_dash_get_chart_total( $type, $chart_data );
+	$total_label        = dn_burst_dash_get_chart_total_label( $type );
+	$subtitle           = dn_burst_dash_get_chart_subtitle( $type );
+	$has_values         = dn_burst_dash_chart_has_values( $chart_data );
+	?>
+	<div class="dn-burst-panel dn-burst-chart-panel <?php echo $has_values ? '' : 'is-empty'; ?>" data-dn-chart-panel>
+		<div class="dn-burst-chart-header">
+			<div>
+				<h2 class="dn-burst-chart-title"><?php echo esc_html( $title ); ?></h2>
+				<?php if ( '' !== $subtitle ) : ?>
+					<p class="dn-burst-chart-subtitle"><?php echo esc_html( $subtitle ); ?></p>
+				<?php endif; ?>
+			</div>
+			<?php if ( '' !== $total ) : ?>
+				<div class="dn-burst-chart-total">
+					<span><?php echo esc_html( $total_label ); ?></span>
+					<strong><?php echo wp_kses_post( $total ); ?></strong>
+				</div>
+			<?php endif; ?>
+		</div>
+		<div class="dn-burst-chart-body">
+			<canvas
+				class="dn-burst-chart"
+				height="250"
+				data-dn-chart="<?php echo esc_attr( $type ); ?>"
+				data-chart="<?php echo esc_attr( wp_json_encode( $chart_data ) ); ?>"
+			></canvas>
+			<p class="dn-burst-chart-empty" <?php echo $has_values ? 'hidden' : ''; ?>><?php esc_html_e( 'No chart data is available for this period yet.', 'dn-burst-funnel-stats' ); ?></p>
+			<div class="dn-burst-chart-tooltip" role="status" aria-live="polite" hidden></div>
+		</div>
+		<?php dn_burst_dash_render_chart_legend( $type, $chart_data ); ?>
 	</div>
 	<?php
 }
 
 function dn_burst_dash_render_charts( $range ) {
 	$chart_data = dn_burst_dash_get_chart_data( $range );
+	$sales      = isset( $chart_data['sales'] ) ? $chart_data['sales'] : array();
+
+	if ( empty( $sales['labels'] ) && ! empty( $chart_data['labels'] ) ) {
+		$sales['labels'] = $chart_data['labels'];
+	}
 	?>
 	<div class="dn-burst-chart-grid">
-		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Sales / Orders', 'dn-burst-funnel-stats' ), 'sales', $chart_data['sales'] + array( 'labels' => $chart_data['labels'] ) ); ?>
-		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Funnel', 'dn-burst-funnel-stats' ), 'line', $chart_data['funnel'] ); ?>
-		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Conversion Rate', 'dn-burst-funnel-stats' ), 'line', $chart_data['conversion'] ); ?>
-		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Top Campaigns by Sales', 'dn-burst-funnel-stats' ), 'line', $chart_data['topUrls'] ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Sales / Orders', 'dn-burst-funnel-stats' ), 'sales', $sales ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Funnel', 'dn-burst-funnel-stats' ), 'funnel', $chart_data['funnel'] ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Conversion Rate', 'dn-burst-funnel-stats' ), 'conversion', $chart_data['conversion'] ); ?>
+		<?php dn_burst_dash_render_chart_panel( esc_html__( 'Top Campaigns by Sales', 'dn-burst-funnel-stats' ), 'top-sales', $chart_data['topUrls'] ); ?>
 	</div>
 	<?php
 }
@@ -1893,8 +2185,32 @@ function dn_burst_dash_get_data_status() {
 	);
 }
 
-function dn_burst_dash_render_data_status_panel() {
+function dn_burst_dash_render_data_status_panel( $compact = false ) {
 	$status = dn_burst_dash_get_data_status();
+
+	if ( $compact ) {
+		?>
+		<div class="dn-burst-data-status" data-dn-status-panel>
+			<div class="dn-burst-data-status-card">
+				<div class="dn-burst-data-status-item">
+					<span><?php esc_html_e( 'Last updated', 'dn-burst-funnel-stats' ); ?></span>
+					<strong data-dn-last-update>
+						<?php echo $status['last_update'] ? esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $status['last_update'] ) ) : esc_html__( 'Not refreshed yet', 'dn-burst-funnel-stats' ); ?>
+					</strong>
+				</div>
+				<div class="dn-burst-data-status-item">
+					<span><?php esc_html_e( 'Next update', 'dn-burst-funnel-stats' ); ?></span>
+					<strong data-dn-next-update>
+						<?php echo $status['next_update'] ? esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $status['next_update'] ) ) : esc_html__( 'Not scheduled', 'dn-burst-funnel-stats' ); ?>
+					</strong>
+				</div>
+				<button type="button" class="button dn-burst-data-status-button" data-dn-update-now><?php esc_html_e( 'Update now', 'dn-burst-funnel-stats' ); ?></button>
+			</div>
+			<div class="dn-burst-status-message" data-dn-status-message aria-live="polite"></div>
+		</div>
+		<?php
+		return;
+	}
 	?>
 	<div class="dn-burst-panel dn-burst-status-panel" data-dn-status-panel>
 		<div>
@@ -1930,7 +2246,6 @@ function dn_burst_dash_render_overview_tab( $data ) {
 	</div>
 
 	<?php dn_burst_dash_render_charts( $data['range'] ); ?>
-	<?php dn_burst_dash_render_data_status_panel(); ?>
 
 	<div class="dn-burst-meta">
 		<strong><?php esc_html_e( 'Matching paths:', 'dn-burst-funnel-stats' ); ?></strong><br />
@@ -1990,27 +2305,50 @@ function dn_burst_dash_render_page() {
 	$range      = $range_data['range'];
 	$tab        = dn_burst_dash_sanitize_tab( dn_burst_dash_get_query_value( 'dn_tab', 'overview' ) );
 	$tabs       = dn_burst_dash_get_tabs();
+	$tab_label  = isset( $tabs[ $tab ] ) ? $tabs[ $tab ] : esc_html__( 'Overview', 'dn-burst-funnel-stats' );
 	?>
-	<div class="wrap dn-burst-wrap" data-dn-dashboard>
-		<div class="dn-burst-toolbar">
-			<h1 class="dn-burst-title"><?php esc_html_e( 'Funnel Stats', 'dn-burst-funnel-stats' ); ?></h1>
-			<?php dn_burst_dash_render_date_picker( $range_data, 'dn-burst-funnel-stats', $tab ); ?>
+	<div class="wrap dn-burst-wrap dn-burst-funnel-stats" data-dn-dashboard>
+		<header class="dn-burst-topbar">
+			<h1 class="dn-burst-topbar-title"><?php echo esc_html( $tab_label ); ?></h1>
+			<div class="dn-burst-topbar-actions" aria-label="<?php echo esc_attr__( 'Dashboard actions', 'dn-burst-funnel-stats' ); ?>">
+				<button type="button" class="dn-burst-topbar-action" aria-label="<?php echo esc_attr__( 'Activity', 'dn-burst-funnel-stats' ); ?>">
+					<span class="dashicons dashicons-flag" aria-hidden="true"></span>
+					<span><?php esc_html_e( 'Activity', 'dn-burst-funnel-stats' ); ?></span>
+				</button>
+				<button type="button" class="dn-burst-topbar-action" aria-label="<?php echo esc_attr__( 'Finish setup', 'dn-burst-funnel-stats' ); ?>">
+					<span class="dashicons dashicons-admin-generic" aria-hidden="true"></span>
+					<span><?php esc_html_e( 'Finish setup', 'dn-burst-funnel-stats' ); ?></span>
+				</button>
+			</div>
+		</header>
+
+		<div class="dn-burst-dashboard-toolbar">
+			<div class="dn-burst-dashboard-toolbar-section dn-burst-date-range-control">
+				<div class="dn-burst-toolbar-label"><?php esc_html_e( 'Date range:', 'dn-burst-funnel-stats' ); ?></div>
+				<?php dn_burst_dash_render_date_picker( $range_data, 'dn-burst-funnel-stats', $tab ); ?>
+			</div>
+			<div class="dn-burst-dashboard-toolbar-section dn-burst-data-status-control">
+				<div class="dn-burst-toolbar-label"><?php esc_html_e( 'Data status:', 'dn-burst-funnel-stats' ); ?></div>
+				<?php dn_burst_dash_render_data_status_panel( true ); ?>
+			</div>
 		</div>
 
-		<nav class="nav-tab-wrapper dn-burst-tabs" aria-label="<?php echo esc_attr__( 'Dashboard tabs', 'dn-burst-funnel-stats' ); ?>">
-			<?php foreach ( $tabs as $tab_key => $tab_label ) : ?>
-				<a
-					href="<?php echo esc_url( dn_burst_dash_get_dashboard_url( 'dn-burst-funnel-stats', $tab_key, $range_data ) ); ?>"
-					class="nav-tab <?php echo $tab_key === $tab ? 'nav-tab-active' : ''; ?>"
-					data-dn-tab="<?php echo esc_attr( $tab_key ); ?>"
-				>
-					<?php echo esc_html( $tab_label ); ?>
-				</a>
-			<?php endforeach; ?>
-		</nav>
+		<div class="dn-burst-dashboard-content">
+			<nav class="nav-tab-wrapper dn-burst-tabs" aria-label="<?php echo esc_attr__( 'Dashboard tabs', 'dn-burst-funnel-stats' ); ?>">
+				<?php foreach ( $tabs as $tab_key => $tab_name ) : ?>
+					<a
+						href="<?php echo esc_url( dn_burst_dash_get_dashboard_url( 'dn-burst-funnel-stats', $tab_key, $range_data ) ); ?>"
+						class="nav-tab <?php echo $tab_key === $tab ? 'nav-tab-active' : ''; ?>"
+						data-dn-tab="<?php echo esc_attr( $tab_key ); ?>"
+					>
+						<?php echo esc_html( $tab_name ); ?>
+					</a>
+				<?php endforeach; ?>
+			</nav>
 
-		<div class="dn-burst-tab-content" data-dn-tab-content aria-live="polite">
-			<?php dn_burst_dash_render_tab_content( $tab, $range_data ); ?>
+			<div class="dn-burst-tab-content" data-dn-tab-content aria-live="polite">
+				<?php dn_burst_dash_render_tab_content( $tab, $range_data ); ?>
+			</div>
 		</div>
 	</div>
 	<?php
