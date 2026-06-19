@@ -5,11 +5,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 function dn_burst_dash_get_sales_orders_for_period( $start, $end ) {
-	return dn_burst_dash_get_orders_for_period(
-		$start,
-		$end,
-		array( 'wc-processing', 'wc-completed' )
-	);
+    return dn_burst_dash_get_orders_for_period(
+        $start,
+        $end,
+        dn_burst_dash_get_counted_order_statuses()
+    );
 }
 
 function dn_burst_dash_get_data_last_changed() {
@@ -651,6 +651,23 @@ function dn_burst_dash_get_burst_period_stats( $start, $end ) {
  * =========================
  */
 
+function dn_burst_dash_get_counted_order_statuses() {
+    if ( ! function_exists( 'wc_get_order_statuses' ) ) {
+        return array();
+    }
+
+    $excluded = apply_filters(
+        'dn_burst_dash_excluded_order_statuses',
+        array(
+            'wc-cancelled',
+        )
+    );
+
+    $statuses = array_keys( wc_get_order_statuses() );
+    $statuses = array_diff( $statuses, $excluded );
+
+    return array_values( $statuses );
+}
 function dn_burst_dash_get_orders_for_period( $start, $end, $statuses = array() ) {
 	if ( ! function_exists( 'wc_get_orders' ) ) {
 		return array();
@@ -710,87 +727,95 @@ function dn_burst_dash_sum_fee_by_keywords( $orders, $keywords = array() ) {
 }
 
 function dn_burst_dash_get_wc_period_stats( $start, $end ) {
-	$sales_orders = dn_burst_dash_get_orders_for_period(
-		$start,
-		$end,
-		array( 'wc-processing', 'wc-completed' )
-	);
+    $counted_statuses = dn_burst_dash_get_counted_order_statuses();
 
-	$pending_orders = dn_burst_dash_get_orders_for_period(
-		$start,
-		$end,
-		array( 'wc-pending', 'wc-on-hold' )
-	);
+    $sales_orders = dn_burst_dash_get_orders_for_period(
+        $start,
+        $end,
+        $counted_statuses
+    );
 
-	$fulfillment_orders = dn_burst_dash_get_orders_for_period(
-		$start,
-		$end,
-		array( 'wc-processing' )
-	);
+    $pending_orders = dn_burst_dash_get_orders_for_period(
+        $start,
+        $end,
+        array( 'wc-pending', 'wc-on-hold' )
+    );
 
-	$order_count       = 0;
-	$gross_sales       = 0;
-	$net_sales         = 0;
-	$items_sold        = 0;
-	$refunds           = 0;
-	$shipping_total    = 0;
-	$paid_total        = 0;
-	$balance_total     = 0;
-	$fulfillment_total = 0;
+    $fulfillment_orders = $sales_orders;
 
-	foreach ( $sales_orders as $order ) {
-		if ( ! $order instanceof WC_Order ) {
-			continue;
-		}
+    $order_count = 0;
+    $gross_sales = 0;
+    $net_sales = 0;
+    $items_sold = 0;
+    $refunds = 0;
+    $shipping_total = 0;
+    $paid_total = 0;
+    $balance_total = 0;
+    $fulfillment_total = 0;
 
-		$order_count++;
-		$gross_sales    += (float) $order->get_total();
-		$refunds        += (float) $order->get_total_refunded();
-		$shipping_total += (float) $order->get_shipping_total();
-		$items_sold     += (int) $order->get_item_count();
-		$paid_total     += (float) $order->get_total();
-	}
+    foreach ( $sales_orders as $order ) {
+        if ( ! $order instanceof WC_Order ) {
+            continue;
+        }
 
-	foreach ( $pending_orders as $order ) {
-		if ( ! $order instanceof WC_Order ) {
-			continue;
-		}
-		$balance_total += (float) $order->get_total();
-	}
+        $order_count++;
+        $gross_sales += (float) $order->get_total();
+        $refunds += (float) $order->get_total_refunded();
+        $shipping_total += (float) $order->get_shipping_total();
+        $items_sold += (int) $order->get_item_count();
+        $paid_total += (float) $order->get_total();
+    }
 
-	foreach ( $fulfillment_orders as $order ) {
-		if ( ! $order instanceof WC_Order ) {
-			continue;
-		}
-		$fulfillment_total += (float) $order->get_total();
-	}
+    foreach ( $pending_orders as $order ) {
+        if ( ! $order instanceof WC_Order ) {
+            continue;
+        }
 
-	$net_sales      = max( 0, $gross_sales - $refunds );
-	$aov            = $order_count > 0 ? $gross_sales / $order_count : 0;
-	$aoi            = $order_count > 0 ? $items_sold / $order_count : 0;
-	$tip_total      = dn_burst_dash_sum_fee_by_keywords( $sales_orders, array( 'tip', 'tips', 'gratuity' ) );
-	$insurance_fee  = dn_burst_dash_sum_fee_by_keywords( $sales_orders, array( 'insurance' ) );
-	$profit_proxy   = max( 0, $net_sales - $shipping_total );
+        $balance_total += (float) $order->get_total();
+    }
 
-	return array(
-		'orders'               => (int) $order_count,
-		'gross_sales'          => (float) $gross_sales,
-		'net_sales'            => (float) $net_sales,
-		'items_sold'           => (int) $items_sold,
-		'aov'                  => (float) $aov,
-		'aoi'                  => (float) $aoi,
-		'pending_payment'      => count( $pending_orders ),
-		'tip_total'            => (float) $tip_total,
-		'profit_proxy'         => (float) $profit_proxy,
-		'fulfillment_orders'   => count( $fulfillment_orders ),
-		'fulfillment_total'    => (float) $fulfillment_total,
-		'paid_total'           => (float) $paid_total,
-		'balance_total'        => (float) $balance_total,
-		'insurance_fee'        => (float) $insurance_fee,
-		'created_campaigns'    => dn_burst_dash_get_created_products_count( $start, $end ),
-	);
+    foreach ( $fulfillment_orders as $order ) {
+        if ( ! $order instanceof WC_Order ) {
+            continue;
+        }
+
+        $fulfillment_total += (float) $order->get_total();
+    }
+
+    $net_sales = max( 0, $gross_sales - $refunds );
+    $aov = $order_count > 0 ? $gross_sales / $order_count : 0;
+    $aoi = $order_count > 0 ? $items_sold / $order_count : 0;
+
+    $tip_total = dn_burst_dash_sum_fee_by_keywords(
+        $sales_orders,
+        array( 'tip', 'tips', 'gratuity' )
+    );
+
+    $insurance_fee = dn_burst_dash_sum_fee_by_keywords(
+        $sales_orders,
+        array( 'insurance' )
+    );
+
+    $profit_proxy = max( 0, $net_sales - $shipping_total );
+
+    return array(
+        'orders'             => (int) $order_count,
+        'gross_sales'        => (float) $gross_sales,
+        'net_sales'          => (float) $net_sales,
+        'items_sold'         => (int) $items_sold,
+        'aov'                => (float) $aov,
+        'aoi'                => (float) $aoi,
+        'pending_payment'    => count( $pending_orders ),
+        'tip_total'          => (float) $tip_total,
+        'profit_proxy'       => (float) $profit_proxy,
+        'fulfillment_orders' => count( $fulfillment_orders ),
+        'fulfillment_total'  => (float) $fulfillment_total,
+        'paid_total'         => (float) $paid_total,
+        'balance_total'      => (float) $balance_total,
+        'insurance_fee'      => (float) $insurance_fee,
+        'created_campaigns'  => dn_burst_dash_get_created_products_count( $start, $end ),
+    );
 }
-
 /**
  * =========================
  * Data builder
