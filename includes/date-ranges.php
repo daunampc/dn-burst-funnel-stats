@@ -225,10 +225,17 @@ function dn_bfs_calculate_date_range( $period = '', $compare = '', $custom_start
 		'current_end'          => $current_end_dt->getTimestamp(),
 		'previous_start'       => $previous_start_dt->getTimestamp(),
 		'previous_end'         => $previous_end_dt->getTimestamp(),
+		// The *_mysql keys are SITE local time ("wall clock" in wp_timezone()).
+		// Never compare them against *_gmt database columns; use the *_gmt keys below.
 		'current_start_mysql'  => $current_start_dt->format( 'Y-m-d H:i:s' ),
 		'current_end_mysql'    => $current_end_dt->format( 'Y-m-d H:i:s' ),
 		'previous_start_mysql' => $previous_start_dt->format( 'Y-m-d H:i:s' ),
 		'previous_end_mysql'   => $previous_end_dt->format( 'Y-m-d H:i:s' ),
+		// UTC variants of the same instants, for post_date_gmt / date_created_gmt.
+		'current_start_gmt'    => gmdate( 'Y-m-d H:i:s', $current_start_dt->getTimestamp() ),
+		'current_end_gmt'      => gmdate( 'Y-m-d H:i:s', $current_end_dt->getTimestamp() ),
+		'previous_start_gmt'   => gmdate( 'Y-m-d H:i:s', $previous_start_dt->getTimestamp() ),
+		'previous_end_gmt'     => gmdate( 'Y-m-d H:i:s', $previous_end_dt->getTimestamp() ),
 		'custom_start'         => $current_start_dt->format( 'Y-m-d' ),
 		'custom_end'           => $current_end_dt->format( 'Y-m-d' ),
 		'days'                 => $days,

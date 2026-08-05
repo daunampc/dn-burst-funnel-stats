@@ -99,7 +99,9 @@ function dn_burst_dash_clear_dashboard_cache() {
 }
 
 function dn_burst_dash_touch_refresh_time() {
-	update_option( 'dn_burst_funnel_stats_last_refresh', current_time( 'timestamp' ), false );
+	// Store a true UTC epoch. Display goes through wp_date(), which applies the
+	// site offset itself, so current_time( 'timestamp' ) would offset twice.
+	update_option( 'dn_burst_funnel_stats_last_refresh', time(), false );
 }
 
 function dn_burst_dash_refresh_dashboard_cache() {
@@ -1665,18 +1667,50 @@ function dn_burst_dash_get_daily_burst_visits( $range ) {
 		return $daily;
 	}
 
+	$tz       = wp_timezone();
+	$start_dt = ( new DateTimeImmutable( '@' . (int) $range['current_start'] ) )->setTimezone( $tz )->setTime( 0, 0, 0 );
+	$end_dt   = ( new DateTimeImmutable( '@' . (int) $range['current_end'] ) )->setTimezone( $tz )->setTime( 0, 0, 0 );
+
+	// Day boundaries are resolved in PHP with the site timezone and handed to SQL
+	// as plain epochs, so the MySQL session timezone never takes part.
+	$case_parts  = array();
+	$case_args   = array();
+	$range_start = null;
+	$range_end   = null;
+
+	for ( $cursor = $start_dt; $cursor <= $end_dt; $cursor = $cursor->modify( '+1 day' ) ) {
+		$day_start = $cursor->getTimestamp();
+		$day_end   = $cursor->modify( '+1 day' )->getTimestamp();
+
+		if ( null === $range_start ) {
+			$range_start = $day_start;
+		}
+
+		$range_end = $day_end;
+
+		$case_parts[] = 'WHEN time >= %d AND time < %d THEN %s';
+		$case_args[]  = $day_start;
+		$case_args[]  = $day_end;
+		$case_args[]  = $cursor->format( 'Y-m-d' );
+	}
+
+	if ( empty( $case_parts ) ) {
+		return $daily;
+	}
+
 	$table = dn_burst_dash_get_burst_table_name();
-	$rows  = $wpdb->get_results(
-		$wpdb->prepare(
-			"
-			SELECT DATE(FROM_UNIXTIME(time)) AS day_key, COUNT(DISTINCT uid) AS visits
-			FROM {$table}
-			WHERE time >= %d AND time <= %d
-			GROUP BY day_key
-			",
-			$range['current_start'],
-			$range['current_end']
-		),
+	$sql   = "
+		SELECT
+			CASE " . implode( ' ', $case_parts ) . " END AS day_key,
+			COUNT(DISTINCT uid) AS visits
+		FROM {$table}
+		WHERE time >= %d AND time < %d
+		GROUP BY day_key
+		HAVING day_key IS NOT NULL
+	";
+
+	$rows = $wpdb->get_results(
+		$wpdb->prepare( $sql, array_merge( $case_args, array( $range_start, $range_end ) ) ),
 		ARRAY_A
 	);
 
@@ -1697,7 +1731,12 @@ function dn_burst_dash_get_daily_order_stats( $range ) {
 			continue;
 		}
 
-		$key = $order->get_date_created()->date_i18n( 'Y-m-d' );
+		// WC_DateTime extends the mutable DateTime, so never call setTimezone() on
+		// the order object itself. Convert through an immutable copy of the epoch.
+		$created = $order->get_date_created();
+		$key     = ( new DateTimeImmutable( '@' . $created->getTimestamp() ) )
+			->setTimezone( wp_timezone() )
+			->format( 'Y-m-d' );
 
 		if ( ! isset( $daily[ $key ] ) ) {
 			$daily[ $key ] = array(
