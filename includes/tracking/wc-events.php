@@ -19,7 +19,18 @@ function dn_bfs_wc_cookie_id( $name, $lifetime ) {
 	$value = bin2hex( random_bytes( 16 ) );
 
 	if ( ! headers_sent() ) {
-		setcookie( $name, $value, time() + $lifetime, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), false );
+		setcookie(
+			$name,
+			$value,
+			array(
+				'expires'  => time() + $lifetime,
+				'path'     => COOKIEPATH ? COOKIEPATH : '/',
+				'domain'   => COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
+				'secure'   => is_ssl(),
+				'httponly' => false,
+				'samesite' => 'Lax',
+			)
+		);
 	}
 
 	$_COOKIE[ $name ] = $value;
@@ -90,10 +101,16 @@ function dn_bfs_wc_on_add_to_cart( $cart_item_key, $product_id, $quantity, $vari
 	$price   = $product ? (float) wc_get_price_to_display( $product ) : 0.0;
 	$qty     = max( 1, (int) $quantity );
 
-	dn_bfs_track_add_to_cart( $target, $qty, $price * $qty, (int) $product_id );
+	// Record the parent product so dedupe and the product_view join share one id.
+	dn_bfs_track_add_to_cart( (int) $product_id, $qty, $price * $qty, (int) $product_id );
 }
 add_action( 'woocommerce_add_to_cart', 'dn_bfs_wc_on_add_to_cart', 10, 4 );
 
+/**
+ * Builds a session-shaped array from WooCommerce order attribution meta, for
+ * orders without a tracked session. session_id is 0, country comes from the
+ * billing address and device is ''.
+ */
 function dn_bfs_wc_order_fallback_session( $order, $visitor_uid ) {
 	$utm = array(
 		'source'     => strtolower( (string) $order->get_meta( '_wc_order_attribution_utm_source' ) ),
@@ -127,14 +144,26 @@ function dn_bfs_track_order( $order ) {
 		return dn_bfs_store_result( false, $reason );
 	}
 
-	$hit    = dn_bfs_wc_session_hit();
-	$result = dn_bfs_store_ensure_session( $hit, $ctx );
+	if ( '' !== (string) $order->get_meta( '_dnbfs_visitor_uid' ) ) {
+		return dn_bfs_store_result( false, 'duplicate' );
+	}
 
-	$session = $result['ok'] ? $result['session'] : dn_bfs_wc_order_fallback_session( $order, $hit['vid'] );
+	$cookie_vid = isset( $_COOKIE[ DN_BFS_COOKIE_VISITOR ] ) && is_string( $_COOKIE[ DN_BFS_COOKIE_VISITOR ] ) ? sanitize_key( wp_unslash( $_COOKIE[ DN_BFS_COOKIE_VISITOR ] ) ) : '';
+	$cookie_sid = isset( $_COOKIE[ DN_BFS_COOKIE_SESSION ] ) && is_string( $_COOKIE[ DN_BFS_COOKIE_SESSION ] ) ? sanitize_key( wp_unslash( $_COOKIE[ DN_BFS_COOKIE_SESSION ] ) ) : '';
+	$vid        = preg_match( '/^[a-f0-9]{32}$/', $cookie_vid ) ? $cookie_vid : '';
+	$sid        = preg_match( '/^[a-f0-9]{32}$/', $cookie_sid ) ? $cookie_sid : '';
+	$existing   = '' !== $sid ? dn_bfs_store_get_session( $sid ) : null;
 
-	$order->update_meta_data( '_dnbfs_session_uid', $result['ok'] ? $hit['sid'] : '' );
-	$order->update_meta_data( '_dnbfs_visitor_uid', $hit['vid'] );
-	$order->save();
+	if ( $existing && $existing['visitor_uid'] === $vid && '1' !== (string) $existing['is_spam'] ) {
+		$session = $existing;
+	} else {
+		$session = dn_bfs_wc_order_fallback_session( $order, $vid );
+		$sid     = '';
+	}
+
+	$order->update_meta_data( '_dnbfs_session_uid', $sid );
+	$order->update_meta_data( '_dnbfs_visitor_uid', $vid );
+	$order->save_meta_data();
 
 	$inserted = dn_bfs_store_insert_event(
 		$session,

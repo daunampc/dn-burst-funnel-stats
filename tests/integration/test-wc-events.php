@@ -71,6 +71,8 @@ dn_bfs_it(
 		$_COOKIE['dnbfs_sid']    = dn_bfs_it_uid( 'session-1' );
 		$_SERVER['HTTP_REFERER'] = home_url( '/?utm_campaign=sale-10&utm_source=facebook&utm_medium=cpc' );
 
+		dn_bfs_store_ensure_session( dn_bfs_wc_session_hit(), dn_bfs_request_context( time(), DN_BFS_IT_UA ) );
+
 		$order = wc_create_order();
 		$order->add_product( wc_get_product( $a ), 2 );
 		$order->calculate_totals();
@@ -81,6 +83,74 @@ dn_bfs_it(
 
 		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'order' AND order_id = " . $order->get_id() . " AND utm_campaign = 'sale-10'" ) );
 		dn_bfs_assert_same( dn_bfs_it_uid( 'session-1' ), wc_get_order( $order->get_id() )->get_meta( '_dnbfs_session_uid' ) );
+	}
+);
+
+dn_bfs_it(
+	'order without a tracked session falls back to WooCommerce attribution',
+	function () {
+		list( $a ) = dn_bfs_it_products( 1 );
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $a ), 1 );
+		$order->calculate_totals();
+		$order->update_meta_data( '_wc_order_attribution_utm_campaign', 'spring' );
+		$order->update_meta_data( '_wc_order_attribution_utm_source', 'google' );
+		$order->update_meta_data( '_wc_order_attribution_utm_medium', 'cpc' );
+		$order->save();
+
+		dn_bfs_track_order( $order );
+
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'order' AND order_id = " . $order->get_id() . " AND session_id = 0 AND utm_campaign = 'spring' AND channel = 'paid'" ) );
+		dn_bfs_assert_same( 0, dn_bfs_it_count( 'sessions' ) );
+	}
+);
+
+dn_bfs_it(
+	'variation add to cart is tracked against the parent product once',
+	function () {
+		$_COOKIE['dnbfs_vid'] = dn_bfs_it_uid( 'visitor-1' );
+		$_COOKIE['dnbfs_sid'] = dn_bfs_it_uid( 'session-1' );
+
+		$attribute = new WC_Product_Attribute();
+		$attribute->set_name( 'Size' );
+		$attribute->set_options( array( 'S', 'M' ) );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+
+		$parent = new WC_Product_Variable();
+		$parent->set_name( 'DNBFS variable test' );
+		$parent->set_status( 'publish' );
+		$parent->set_attributes( array( $attribute ) );
+		$parent_id = $parent->save();
+
+		$variation_ids = array();
+		foreach ( array( 'S', 'M' ) as $size ) {
+			$variation = new WC_Product_Variation();
+			$variation->set_parent_id( $parent_id );
+			$variation->set_attributes( array( 'size' => $size ) );
+			$variation->set_regular_price( '12' );
+			$variation->set_status( 'publish' );
+			$variation_ids[ $size ] = $variation->save();
+		}
+		WC_Product_Variable::sync( $parent_id );
+
+		try {
+			wc_load_cart();
+			WC()->cart->empty_cart();
+			WC()->cart->add_to_cart( $parent_id, 1, $variation_ids['S'], array( 'attribute_size' => 'S' ) );
+			WC()->cart->add_to_cart( $parent_id, 1, $variation_ids['M'], array( 'attribute_size' => 'M' ) );
+			WC()->cart->empty_cart();
+
+			dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'add_to_cart' AND product_id = {$parent_id}" ) );
+			dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'cart' AND product_id = {$parent_id}" ) );
+			dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'add_to_cart'" ) );
+		} finally {
+			foreach ( $variation_ids as $id ) {
+				wp_delete_post( $id, true );
+			}
+			wp_delete_post( $parent_id, true );
+		}
 	}
 );
 
