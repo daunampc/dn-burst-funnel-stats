@@ -262,3 +262,143 @@ function dn_bfs_store_track_ping( $hit, $ctx ) {
 
 	return dn_bfs_store_result( true );
 }
+
+function dn_bfs_store_insert_event( $session, $type, $fields, $now ) {
+	global $wpdb;
+
+	$order_id = isset( $fields['order_id'] ) && $fields['order_id'] ? (int) $fields['order_id'] : null;
+
+	$wpdb->query(
+		$wpdb->prepare(
+			'INSERT IGNORE INTO ' . dn_bfs_table( 'events' ) . '
+			(session_id, visitor_uid, time, type, product_id, qty, value, order_id, channel, utm_source, utm_medium, utm_campaign, country, device)
+			VALUES (%d, %s, %d, %s, %d, %d, %f, ' . ( null === $order_id ? 'NULL' : '%d' ) . ', %s, %s, %s, %s, %s, %s)',
+			array_merge(
+				array(
+					(int) $session['id'],
+					(string) $session['visitor_uid'],
+					(int) $now,
+					$type,
+					isset( $fields['product_id'] ) ? (int) $fields['product_id'] : 0,
+					isset( $fields['qty'] ) ? (int) $fields['qty'] : 0,
+					isset( $fields['value'] ) ? (float) $fields['value'] : 0,
+				),
+				null === $order_id ? array() : array( $order_id ),
+				array(
+					(string) $session['channel'],
+					(string) $session['utm_source'],
+					(string) $session['utm_medium'],
+					(string) $session['utm_campaign'],
+					(string) $session['country'],
+					(string) $session['device'],
+				)
+			)
+		)
+	);
+
+	return (int) $wpdb->insert_id;
+}
+
+function dn_bfs_store_find_recent_event( $type, $visitor_uid, $ip_hash, $product_id, $since ) {
+	global $wpdb;
+
+	$events   = dn_bfs_table( 'events' );
+	$sessions = dn_bfs_table( 'sessions' );
+
+	$row = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT e.* FROM {$events} e
+			LEFT JOIN {$sessions} s ON s.id = e.session_id
+			WHERE e.type = %s AND e.product_id = %d AND e.time >= %d
+				AND (e.visitor_uid = %s OR (%s <> '' AND s.ip_hash = %s))
+			ORDER BY e.time DESC LIMIT 1",
+			$type,
+			(int) $product_id,
+			(int) $since,
+			$visitor_uid,
+			$ip_hash,
+			$ip_hash
+		),
+		ARRAY_A
+	);
+
+	return is_array( $row ) ? $row : null;
+}
+
+function dn_bfs_store_record_product_view( $session, $product_id, $ctx ) {
+	$now    = (int) $ctx['now'];
+	$recent = dn_bfs_store_find_recent_event( 'product_view', $session['visitor_uid'], $ctx['ip_hash'], $product_id, $now - (int) $ctx['settings']['dedupe_window'] );
+
+	if ( $recent ) {
+		return dn_bfs_store_result( false, 'duplicate' );
+	}
+
+	dn_bfs_store_insert_event( $session, 'product_view', array( 'product_id' => $product_id ), $now );
+
+	return dn_bfs_store_result( true );
+}
+
+function dn_bfs_store_record_checkout( $session, $ctx ) {
+	global $wpdb;
+
+	$exists = $wpdb->get_var(
+		$wpdb->prepare( 'SELECT id FROM ' . dn_bfs_table( 'events' ) . " WHERE session_id = %d AND type = 'checkout_start' LIMIT 1", (int) $session['id'] )
+	);
+
+	if ( $exists ) {
+		return dn_bfs_store_result( false, 'duplicate' );
+	}
+
+	dn_bfs_store_insert_event( $session, 'checkout_start', array(), (int) $ctx['now'] );
+
+	return dn_bfs_store_result( true );
+}
+
+function dn_bfs_store_track_add_to_cart( $session, $product_id, $qty, $value, $ctx ) {
+	global $wpdb;
+
+	$now    = (int) $ctx['now'];
+	$events = dn_bfs_table( 'events' );
+	$qty    = max( 1, (int) $qty );
+
+	$calls = (int) $wpdb->get_var(
+		$wpdb->prepare(
+			"SELECT COUNT(*) + COALESCE(SUM(attempts), 0) FROM {$events} WHERE visitor_uid = %s AND type = 'add_to_cart' AND time >= %d",
+			$session['visitor_uid'],
+			$now - MINUTE_IN_SECONDS
+		)
+	);
+
+	if ( $calls >= (int) $ctx['settings']['limit_atc_per_min'] ) {
+		dn_bfs_store_mark_spam( (int) $session['id'] );
+		return dn_bfs_store_result( false, 'rate_atc' );
+	}
+
+	$recent = dn_bfs_store_find_recent_event( 'add_to_cart', $session['visitor_uid'], $ctx['ip_hash'], $product_id, $now - (int) $ctx['settings']['dedupe_window'] );
+
+	if ( $recent ) {
+		$wpdb->query( $wpdb->prepare( "UPDATE {$events} SET qty = qty + %d, attempts = attempts + 1 WHERE id = %d", $qty, (int) $recent['id'] ) );
+		return dn_bfs_store_result( false, 'duplicate' );
+	}
+
+	$fields = array(
+		'product_id' => (int) $product_id,
+		'qty'        => $qty,
+		'value'      => (float) $value,
+	);
+
+	dn_bfs_store_insert_event( $session, 'add_to_cart', $fields, $now );
+	dn_bfs_store_insert_event( $session, 'cart', $fields, $now );
+
+	return dn_bfs_store_result( true );
+}
+
+function dn_bfs_store_after_pageview( $session, $hit, $ctx ) {
+	if ( 'product' === $hit['ptype'] && (int) $hit['pid'] > 0 && dn_bfs_should_track_product( (int) $hit['pid'] ) ) {
+		dn_bfs_store_record_product_view( $session, (int) $hit['pid'], $ctx );
+	}
+
+	if ( 'checkout' === $hit['ptype'] ) {
+		dn_bfs_store_record_checkout( $session, $ctx );
+	}
+}
