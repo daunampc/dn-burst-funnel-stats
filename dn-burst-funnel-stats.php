@@ -109,6 +109,18 @@ function dn_burst_funnel_stats_load_tracking()
 }
 
 /**
+ * Load report modules (aggregation inputs and the report API).
+ *
+ * @return void
+ */
+function dn_burst_funnel_stats_load_reports()
+{
+  foreach (array('reports/metrics', 'reports/wc-settings') as $module) {
+    require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/' . $module . '.php';
+  }
+}
+
+/**
  * Validate dependencies on plugin activation.
  *
  * @return void
@@ -134,6 +146,7 @@ function dn_burst_funnel_stats_activate()
   }
 
   dn_burst_funnel_stats_load_tracking();
+  dn_burst_funnel_stats_load_reports();
 
   dn_burst_funnel_stats_maybe_migrate();
 }
@@ -233,6 +246,7 @@ function dn_burst_funnel_stats_bootstrap()
   }
 
   dn_burst_funnel_stats_load_tracking();
+  dn_burst_funnel_stats_load_reports();
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/date-ranges.php';
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/dashboard.php';
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin-menu.php';

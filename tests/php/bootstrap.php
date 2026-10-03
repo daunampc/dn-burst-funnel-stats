@@ -60,3 +60,7 @@ foreach ( array( 'ua-parser', 'channel', 'guard', 'geo' ) as $dn_bfs_file ) {
 		require_once $dn_bfs_path;
 	}
 }
+
+foreach ( array( 'metrics', 'wc-settings' ) as $dn_bfs_file ) {
+	require_once $dn_bfs_root . '/includes/reports/' . $dn_bfs_file . '.php';
+}
