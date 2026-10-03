@@ -110,5 +110,10 @@ function dn_bfs_it_report() {
 	$results = $GLOBALS['dn_bfs_it_results'];
 	WP_CLI::log( sprintf( '%d passed, %d failed', $results['pass'], $results['fail'] ) );
 
+	if ( 0 === $results['pass'] + $results['fail'] ) {
+		WP_CLI::log( 'No tests ran.' );
+		return 1;
+	}
+
 	return $results['fail'] > 0 ? 1 : 0;
 }
