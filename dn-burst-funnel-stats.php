@@ -103,7 +103,7 @@ function dn_burst_funnel_stats_load_tracking()
 {
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
 
-  foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events', 'aggregator', 'cleanup') as $module) {
+  foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events', 'aggregator', 'cleanup', 'geoip-update') as $module) {
     require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking/' . $module . '.php';
   }
 }
