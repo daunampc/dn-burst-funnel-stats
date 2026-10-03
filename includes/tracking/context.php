@@ -20,7 +20,10 @@ function dn_bfs_site_host() {
 	return dn_bfs_normalize_host( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
 }
 
-function dn_bfs_ip_hash( $ip, $now ) {
+/**
+ * Per-day client fingerprint (IP + user-agent), never the raw IP.
+ */
+function dn_bfs_ip_hash( $ip, $now, $user_agent = '' ) {
 	if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
 		return '';
 	}
@@ -33,7 +36,7 @@ function dn_bfs_ip_hash( $ip, $now ) {
 		$salt = get_option( $option );
 	}
 
-	return hash_hmac( 'sha256', $ip, (string) $salt );
+	return hash_hmac( 'sha256', $ip . '|' . (string) $user_agent, (string) $salt );
 }
 
 /**
@@ -59,7 +62,7 @@ function dn_bfs_request_context( $now, $ua_raw ) {
 		'now'       => (int) $now,
 		'settings'  => dn_bfs_get_tracking_settings(),
 		'ip'        => $ip,
-		'ip_hash'   => dn_bfs_ip_hash( $ip, $now ),
+		'ip_hash'   => dn_bfs_ip_hash( $ip, $now, $ua_raw ),
 		'ua_raw'    => (string) $ua_raw,
 		'ua'        => dn_bfs_parse_user_agent( $ua_raw ),
 		'roles'     => dn_bfs_request_roles(),

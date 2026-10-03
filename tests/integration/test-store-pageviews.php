@@ -125,7 +125,7 @@ dn_bfs_it(
 );
 
 dn_bfs_it(
-	'more than 20 new sessions per hour from one IP is blocked and marked spam',
+	'more than 20 new sessions per hour from one IP and browser blocks only the excess sessions',
 	function () {
 		$now = time();
 
@@ -136,7 +136,25 @@ dn_bfs_it(
 		$result = dn_bfs_store_track_pageview( dn_bfs_it_hit( array( 'vid' => dn_bfs_it_uid( 'v21' ), 'sid' => dn_bfs_it_uid( 's21' ) ) ), dn_bfs_it_ctx( $now + 30 ) );
 
 		dn_bfs_assert_same( 'rate_sessions', $result['reason'] );
-		dn_bfs_assert_same( 20, dn_bfs_it_count( 'sessions', 'is_spam = 1' ) );
+		dn_bfs_assert_same( 0, dn_bfs_it_count( 'sessions', 'is_spam = 1' ) );
+		dn_bfs_assert_same( 20, dn_bfs_it_count( 'sessions' ) );
+	}
+);
+
+dn_bfs_it(
+	'same IP with a different user-agent is not blocked by the session limit',
+	function () {
+		$now = time();
+		$ua2 = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+
+		for ( $i = 0; $i < 20; $i++ ) {
+			dn_bfs_store_track_pageview( dn_bfs_it_hit( array( 'vid' => dn_bfs_it_uid( 'v' . $i ), 'sid' => dn_bfs_it_uid( 's' . $i ) ) ), dn_bfs_it_ctx( $now + $i ) );
+		}
+
+		$result = dn_bfs_store_track_pageview( dn_bfs_it_hit( array( 'vid' => dn_bfs_it_uid( 'v-ios' ), 'sid' => dn_bfs_it_uid( 's-ios' ) ) ), dn_bfs_it_ctx( $now + 30, $ua2 ) );
+
+		dn_bfs_assert_true( $result['ok'], 'different browser is ok' );
+		dn_bfs_assert_same( 21, dn_bfs_it_count( 'sessions' ) );
 	}
 );
 

@@ -21,6 +21,7 @@ dn_bfs_it(
 
 		dn_bfs_assert_same( dn_bfs_ip_hash( '203.0.113.9', $day1 ), dn_bfs_ip_hash( '203.0.113.9', $day1 + 60 ) );
 		dn_bfs_assert_true( dn_bfs_ip_hash( '203.0.113.9', $day1 ) !== dn_bfs_ip_hash( '203.0.113.9', $day1 + 2 * DAY_IN_SECONDS ), 'differs across days' );
+		dn_bfs_assert_true( dn_bfs_ip_hash( '203.0.113.9', $day1, 'UA-A' ) !== dn_bfs_ip_hash( '203.0.113.9', $day1, 'UA-B' ), 'differs across user agents' );
 		dn_bfs_assert_same( '', dn_bfs_ip_hash( 'unknown', $day1 ) );
 	}
 );

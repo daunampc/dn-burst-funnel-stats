@@ -84,12 +84,6 @@ function dn_bfs_store_ensure_session( $hit, $ctx ) {
 		$recent = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$sessions_table} WHERE ip_hash = %s AND started_at >= %d", $ctx['ip_hash'], $since ) );
 
 		if ( $recent >= (int) $settings['limit_sessions_per_hour'] ) {
-			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$sessions_table} WHERE ip_hash = %s AND started_at >= %d AND is_spam = 0", $ctx['ip_hash'], $since ) );
-
-			foreach ( $ids as $id ) {
-				dn_bfs_store_mark_spam( (int) $id );
-			}
-
 			return dn_bfs_store_result( false, 'rate_sessions' );
 		}
 	}

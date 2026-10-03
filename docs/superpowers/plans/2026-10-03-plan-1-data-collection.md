@@ -16,7 +16,7 @@
 - Tiền tố hàm mới: `dn_bfs_`. Tên bảng: `{$wpdb->prefix}dnbfs_<name>` qua `dn_bfs_table( $name )`.
 - Phong cách code: theo file hiện có — hàm thủ tục, tab để thụt lề, khoảng trắng trong ngoặc kiểu WordPress (`foo( $a )`), docblock ngắn.
 - Mọi thời gian lưu dạng epoch UTC (int). Ngày (`Y-m-d`) luôn tính theo `wp_timezone()` (dùng `wp_date()`).
-- Không bao giờ lưu IP gốc; chỉ lưu `ip_hash = hash_hmac( 'sha256', $ip, salt_ngày )`.
+- Không bao giờ lưu IP gốc; chỉ lưu `ip_hash = hash_hmac( 'sha256', $ip . '|' . $user_agent, salt_ngày )`.
 - Cookie: `dnbfs_vid` (32 hex, mặc định 365 ngày), `dnbfs_sid` (32 hex, hết hạn sau 30 phút không hoạt động), `dnbfs_sm` (`Y-m-d~campaign`). `path=/`, `SameSite=Lax`, `Secure` khi HTTPS, không `HttpOnly` (JS cần đọc).
 - Cửa sổ chống trùng sản phẩm mặc định 300 giây; bỏ qua F5 10 giây; giới hạn: 60 pv/phút/phiên, 20 phiên mới/giờ/ip_hash, 20 ATC/phút/khách, 300 pv/phiên.
 - Cart trên phễu luôn bằng Add To Cart: hai sự kiện `add_to_cart` và `cart` được ghi cùng lúc từ server.
@@ -1815,7 +1815,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `dn_bfs_install_schema(): void` — tạo 6 bảng `visitors, sessions, pageviews, events, daily, api_keys` bằng `dbDelta`.
   - `dn_bfs_now(): int` (filter `dn_bfs_now`).
   - `dn_bfs_site_host(): string`.
-  - `dn_bfs_ip_hash( string $ip, int $now ): string` — `''` khi IP không hợp lệ.
+  - `dn_bfs_ip_hash( string $ip, int $now, string $user_agent = '' ): string` — `''` khi IP không hợp lệ.
   - `dn_bfs_request_roles(): array`.
   - `dn_bfs_request_context( int $now, string $ua_raw ): array` → khóa `now, settings, ip, ip_hash, ua_raw, ua, roles, site_host`.
 
@@ -3111,7 +3111,7 @@ dn_bfs_it(
 		dn_bfs_it_collect( dn_bfs_it_pv_body() );
 		$session = dn_bfs_store_get_session( dn_bfs_it_uid( 'session-1' ) );
 
-		dn_bfs_assert_same( dn_bfs_ip_hash( '198.51.100.44', time() ), $session['ip_hash'] );
+		dn_bfs_assert_same( dn_bfs_ip_hash( '198.51.100.44', time(), DN_BFS_IT_UA ), $session['ip_hash'] );
 		dn_bfs_assert_same( 'VN', $session['country'] );
 	}
 );

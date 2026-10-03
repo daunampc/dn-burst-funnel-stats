@@ -154,7 +154,7 @@ Cửa sổ 5 phút kiểm tra theo `visitor_uid` **hoặc** `ip_hash` (cùng ng�
 | Giới hạn | Khi vượt |
 |---|---|
 | 60 pageview / phút / session | chặn + `is_spam=1` cho session |
-| 20 session mới / giờ / `ip_hash` | chặn + `is_spam=1` |
+| 20 session mới / giờ / `ip_hash` (IP + user-agent) | chặn phiên vượt ngưỡng (không đánh dấu spam các phiên trước đó) |
 | 20 lần gọi Add To Cart / phút / visitor (kể cả lần bị bỏ qua) | chặn + `is_spam=1` |
 | 300 pageview / session | chặn + `is_spam=1` |
 
@@ -162,7 +162,7 @@ Bộ đếm truy vấn trực tiếp trên bảng thô (có index thời gian); 
 
 Session `is_spam=1` bị loại khỏi mọi thống kê, kể cả các lượt đã ghi trước khi bị đánh dấu; ngày của session đó được đánh dấu cần tổng hợp lại.
 
-IP gốc không bao giờ được lưu; `ip_hash = hash_hmac('sha256', ip, salt_ngày)`; salt lưu trong option `dnbfs_salt_{Y-m-d}`, đổi mỗi ngày.
+IP gốc không bao giờ được lưu; `ip_hash = hash_hmac( 'sha256', ip . '|' . user_agent, salt_ngày )`; salt lưu trong option `dnbfs_salt_{Y-m-d}`, đổi mỗi ngày.
 
 ## 6. Tổng hợp và dọn dẹp
 
