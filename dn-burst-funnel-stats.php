@@ -115,7 +115,7 @@ function dn_burst_funnel_stats_load_tracking()
  */
 function dn_burst_funnel_stats_load_reports()
 {
-  foreach (array('reports/metrics', 'reports/wc-settings') as $module) {
+  foreach (array('reports/metrics', 'reports/wc-settings', 'reports/raw') as $module) {
     require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/' . $module . '.php';
   }
 }
