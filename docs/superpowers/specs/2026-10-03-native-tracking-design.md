@@ -2,7 +2,7 @@
 
 - Ngày: 2026-10-03
 - Phiên bản đích: plugin **3.0.0**, schema **4**
-- Trạng thái: Thiết kế đã duyệt, chờ review spec
+- Trạng thái: Thiết kế đã duyệt (gồm giao diện React)
 
 ## 1. Mục tiêu
 
@@ -184,30 +184,67 @@ Drop các bảng `dnbfs_*`; xóa option `dn_burst_funnel_stats_*`, `dnbfs_*`, `d
 ## 7. Lớp báo cáo (`reports.php`)
 
 API PHP duy nhất cho dashboard và REST:
-- `dn_bfs_report_summary( $range )` → tổng các chỉ số + kỳ so sánh + % thay đổi.
-- `dn_bfs_report_timeseries( $range, $metrics )`.
-- `dn_bfs_report_breakdown( $range, $dimension, $orderby, $order, $limit, $offset )`.
-- `dn_bfs_report_funnel( $range )`.
+- Mọi hàm nhận thêm `$filters` (mảng `dimension => value`, xem 8.3).
+- `dn_bfs_report_summary( $range, $filters )` → tổng các chỉ số + kỳ so sánh + % thay đổi.
+- `dn_bfs_report_timeseries( $range, $metrics, $filters )`.
+- `dn_bfs_report_breakdown( $range, $dimension, $filters, $orderby, $order, $limit, $offset )`.
+- `dn_bfs_report_funnel( $range, $filters )`.
 - `dn_bfs_report_realtime()`.
 
 Nguồn: `dnbfs_daily` cho ngày đã qua; bảng thô cho hôm nay (cache 60 giây); realtime không cache. Visitors cho khoảng nhiều ngày: nếu toàn bộ khoảng còn trong thời hạn dữ liệu thô → `COUNT(DISTINCT visitor_uid)` chính xác; nếu không → cộng theo ngày và trả cờ `estimated = true`.
 
-Định nghĩa chỉ số WooCommerce (sửa lỗi bản cũ):
+Định nghĩa chỉ số WooCommerce (sửa lỗi bản cũ; tập trạng thái là giá trị mặc định, chỉnh được ở Settings → WooCommerce):
 - Sales = tổng đơn được tính (loại cancelled/failed/checkout-draft) trừ hoàn tiền.
 - Paid = đơn `processing` + `completed`. Balance = đơn `pending` + `on-hold` (không cộng vào Paid).
 - Conversion rate = Orders / Visitors.
 
-## 8. Dashboard
+## 8. Giao diện admin (React)
 
-Giữ giao diện, date picker, so sánh, biểu đồ canvas hiện tại; đổi nguồn sang `reports.php`.
+### 8.1 Công nghệ
+- React + `@wordpress/components` + `@wordpress/data` + `@wordpress/api-fetch` + Chart.js; build bằng `@wordpress/scripts`.
+- Mã nguồn `src/admin/`, bundle ra `build/` (commit vào repo; cài plugin không cần Node). Nạp bằng `build/*.asset.php` (dependencies + version).
+- Máy dev không có Node: build chạy trong container `node:20` (`docker compose run --rm node npm run build`).
+- Mỗi trang admin chỉ in `<div id="dnbfs-app" data-page="dashboard|settings">`. React đồng bộ trạng thái lên URL (`tab`, `period`, `compare`, `start`, `end`, `filter`) để có thể đánh dấu/chia sẻ link.
+- Dữ liệu qua **REST nội bộ** `dnbfs/v1/admin/*` (cookie + nonce `wp_rest`), quyền `manage_options` (filter `dn_bfs_capability`). Dùng chung `reports.php` với API công khai.
+- Bỏ `assets/admin.js`, `assets/admin.css`, `includes/ajax.php` và phần render HTML của `dashboard.php`.
+- Menu admin chỉ còn **Funnel Stats → Dashboard** và **Settings** (Import/Export gộp vào Settings → Dữ liệu; bỏ trang URL Tracking riêng — đã có tab Ad URLs).
 
-- Thẻ: Visitors, Pageviews, Sessions, Khách mới/quay lại, Bounce rate, Thời gian phiên TB, Trang/phiên, Product Views, Add To Cart (= Cart), Checkout, Orders/AOV, Items/AOI, Conversion Rate, Sales/Tip, Paid/Balance.
-- Widget realtime: số khách online + top trang đang xem, tự làm mới 30 giây (AJAX, nonce như hiện tại).
-- Phễu: Visitors → Product Views → Add To Cart = Cart → Checkout → Orders.
-- Tab: Overview, Pages, Sources, Ad URLs, Products, Devices, Locations, Brands.
-- Bỏ hai nút giả "Activity", "Finish setup".
+### 8.2 Dashboard — bố cục tab ngang
+- **Thanh trên**: date picker (11 preset + custom) và chọn so sánh; **bộ lọc chung** dạng chip (`Kênh`, `Source`, `Medium`, `Campaign`, `Thiết bị`, `Quốc gia`; ví dụ `Campaign: sale-10 ×`); badge số khách online (bấm mở panel realtime: số online, trang đang xem, nguồn); nút làm mới.
+- **Overview**:
+  - Lưới thẻ: Visitors, Pageviews, Sessions, Khách mới/quay lại, Bounce rate, Thời gian phiên TB, Trang/phiên, Product Views, Add To Cart (= Cart), Checkout, Orders/AOV, Items/AOI, Conversion Rate, Sales/Tip, Paid/Balance. Mỗi thẻ có giá trị kỳ so sánh và % thay đổi.
+  - Nút **Tùy chỉnh**: ẩn/hiện và kéo thả sắp xếp thẻ; lưu vào user meta `dnbfs_cards` (mỗi admin một cấu hình) qua `POST admin/preferences`; có "Khôi phục mặc định".
+  - Biểu đồ Sales/Orders theo ngày (2 trục), phễu Visitors → Product Views → ATC = Cart → Checkout → Orders, top 10 trang, top 10 campaign.
+- **Tab**: Pages (trang / trang vào / trang thoát), Sources (kênh / referrer / source / medium), Ad URLs (campaign / source / medium kèm phễu + doanh thu + CR), Products (views, ATC, tỷ lệ view→ATC, đơn, doanh thu), Devices (thiết bị / trình duyệt / HĐH), Locations (quốc gia / thành phố), Brands. Bảng sắp xếp được, phân trang phía server (25 dòng/trang).
+- **Drill-down**: bấm một dòng → panel trượt bên phải với biểu đồ theo ngày, phễu riêng, top nguồn, top thiết bị. Panel = bộ lọc chung áp riêng cho dòng đó; nút "Áp làm bộ lọc" áp cho toàn dashboard.
+- Trạng thái tải (skeleton), trạng thái rỗng, lỗi có nút Thử lại; giá trị `estimated` hiển thị ghi chú "ước tính".
 
-Settings bổ sung: số ngày giữ dữ liệu thô, license key MaxMind (+ nút cập nhật ngay, trạng thái file), vai trò loại trừ, cửa sổ chống trùng (mặc định 5 phút), các ngưỡng giới hạn tần suất, ép chuyển đến trang Cart, quản lý API key, bảng đếm "bị chặn theo lý do" 7 ngày gần nhất.
+### 8.3 Ngữ nghĩa bộ lọc chung
+`dnbfs_daily` chỉ lưu từng dimension riêng lẻ, nên:
+- **0 hoặc 1 bộ lọc** + summary/timeseries/funnel → đọc `dnbfs_daily` (dòng của dimension được lọc), dùng được mọi khoảng thời gian.
+- **≥ 2 bộ lọc**, hoặc **bộ lọc + breakdown theo dimension khác** → truy vấn bảng thô; chỉ hợp lệ khi toàn bộ khoảng nằm trong thời hạn dữ liệu thô. Ngoài thời hạn: API trả `422 filter_out_of_retention` cho chỉ số traffic; chỉ số đơn hàng/doanh thu vẫn tính được từ sự kiện `order` (attribution ghi kèm). Giao diện hiển thị thông báo giải thích.
+- Bộ lọc là tham số `filter[dimension]=value` trên mọi endpoint báo cáo (nội bộ và công khai).
+
+### 8.4 Settings — danh sách nhóm dọc
+Mỗi nhóm một form riêng, nút Lưu riêng, validate tức thì, cảnh báo khi rời trang chưa lưu. Lưu qua `POST admin/settings/{group}`.
+
+| Nhóm | Cấu hình |
+|---|---|
+| Chung | Bật/tắt tracking, khoảng ngày mặc định, so sánh mặc định |
+| Tracking | Vai trò loại trừ, IP/CIDR loại trừ (báo dòng không hợp lệ), chế độ trang (tất cả/chọn) + chọn trang, chế độ sản phẩm (tất cả/chọn) + chọn sản phẩm, thời gian hết phiên (mặc định 30 phút), thời hạn cookie (mặc định 365 ngày), tham số URL bỏ qua khi lưu path (mặc định `fbclid`, `gclid`, `_ga`…) |
+| Chống spam | Cửa sổ chống trùng sản phẩm (5 phút), bỏ qua F5 (10 giây), 4 ngưỡng giới hạn tần suất, từ khóa bot tự thêm, chặn UA rỗng, biểu đồ lượt bị chặn theo lý do 7 ngày |
+| WooCommerce | Ép chuyển đến trang Cart, trạng thái đơn tính Sales / Paid / Balance, từ khóa phí Tip |
+| GeoIP | Ưu tiên Cloudflare, license key MaxMind, trạng thái file (ngày cập nhật, dung lượng), nút "Cập nhật ngay" |
+| Dữ liệu | Số ngày giữ dữ liệu thô, tổng hợp lại khoảng ngày, dung lượng từng bảng, Export/Import Settings (JSON), xóa toàn bộ dữ liệu (gõ `DELETE` để xác nhận) |
+| API keys | Danh sách (tên, prefix, quyền, lần dùng cuối, trạng thái), tạo key trong modal (key hiện một lần + nút sao chép), sửa tên/quyền/IP/giới hạn, thu hồi; link `openapi.json` |
+| Hệ thống | Đèn xanh/vàng/đỏ: bảng đủ và đúng schema, cron aggregate/cleanup chạy trong 2 giờ/2 ngày gần nhất, test `/collect` (gọi loopback), tracker có trong HTML trang chủ, GeoIP sẵn sàng, phiên bản plugin/WC/PHP/MySQL |
+
+### 8.5 Widget trên WP Dashboard
+- `wp_add_dashboard_widget`, render PHP (không nạp bundle React), chỉ hiện với người có quyền.
+- Nội dung: khách online, Visitors / Orders / Sales hôm nay so với hôm qua, link mở dashboard. Số online tự làm mới 30 giây qua `fetch` `admin/realtime`.
+
+### 8.6 REST nội bộ `dnbfs/v1/admin/*`
+`GET summary`, `GET timeseries`, `GET breakdown`, `GET funnel`, `GET realtime`, `GET filters/values?dimension=&search=` (gợi ý giá trị cho chip lọc), `GET|POST preferences`, `GET|POST settings/{group}`, `GET|POST|PATCH|DELETE api-keys`, `POST data/reaggregate`, `POST data/purge`, `GET data/export`, `POST data/import`, `POST geoip/update`, `GET system/status`.
 
 ## 9. REST API công khai
 
@@ -247,7 +284,7 @@ Giữ phong cách hàm có tiền tố như code hiện tại (`dn_bfs_`).
 ```
 dn-burst-funnel-stats.php
 includes/
-  tracking.php            (giữ: settings tracking, IP/CIDR, bot keywords — mở rộng)
+  tracking.php            (settings tracking, IP/CIDR, bot keywords — mở rộng)
   tracking/schema.php
   tracking/collector.php
   tracking/guard.php
@@ -258,18 +295,25 @@ includes/
   tracking/aggregator.php
   tracking/cleanup.php
   reports.php
+  settings.php            (schema + sanitize cho 8 nhóm, không còn render HTML)
   api/auth.php
-  api/routes.php
+  api/routes.php          (REST công khai)
   api/openapi.php
-  dashboard.php           (chỉ hiển thị)
-  date-ranges.php, ajax.php, admin-menu.php, settings.php, import-export.php
+  admin/routes.php        (REST nội bộ)
+  admin/pages.php         (menu, nạp bundle, div mount)
+  admin/dashboard-widget.php
+  date-ranges.php
+  class-github-updater.php
 lib/maxmind-db/           (MaxMind\Db\Reader thuần PHP, Apache-2.0)
+src/admin/                (React: dashboard/, settings/, components/, store/, utils/)
+build/                    (bundle đã build, commit)
 assets/tracker.js
-tests/                    (PHPUnit)
-docker/                   (môi trường test)
+package.json, composer.json, phpunit.xml.dist
+tests/php/, src/admin/**/__tests__/
+docker/
 ```
 
-Import/Export: xuất/nhập Settings và API key metadata (không có hash); không xuất dữ liệu thô.
+Import/Export (Settings → Dữ liệu): xuất/nhập Settings (không gồm API key); không xuất dữ liệu thô. Xóa `includes/ajax.php`, `includes/admin-menu.php`, `includes/dashboard.php`, `includes/import-export.php`, `assets/admin.js`, `assets/admin.css` sau khi phần thay thế hoàn tất.
 
 ## 12. Môi trường test bằng Docker
 
@@ -280,6 +324,7 @@ Máy dev không có PHP/Composer, nên mọi thứ chạy trong container.
 - `wordpress`: image `wordpress:php8.2-apache`, mount plugin vào `/var/www/html/wp-content/plugins/dn-burst-funnel-stats`, cổng `8080`.
 - `wpcli`: image `wordpress:cli`, cùng volume.
 - `phpunit`: image `composer` + PHP 8.2, chạy `composer install` và `vendor/bin/phpunit` trên thư mục plugin.
+- `node`: image `node:20`, chạy `npm ci`, `npm run build`, `npm test` (Jest qua `@wordpress/scripts`).
 
 `docker/setup.sh` (idempotent): cài WordPress (`http://localhost:8080`), cài + kích hoạt WooCommerce, bật permalink đẹp, tạo trang shop/cart/checkout, tạo 10 sản phẩm mẫu, bật thanh toán COD, kích hoạt plugin. Tài khoản admin test ghi trong `docker/.env.example`.
 
@@ -293,6 +338,9 @@ Máy dev không có PHP/Composer, nên mọi thứ chạy trong container.
 - Date ranges và chia ngày theo múi giờ.
 - API auth: định dạng key, hash, so sánh, scope.
 
+### Jest (giao diện)
+- Định dạng số/tiền/phần trăm, mã hóa và giải mã bộ lọc + khoảng ngày trên URL, logic ẩn/hiện + sắp xếp thẻ, validate form Settings.
+
 ### Tích hợp trên Docker (checklist thủ công + script curl)
 1. Tải 1 trang → 1 visitor, 1 session, 1 pageview; F5 liên tục trong 10 giây → vẫn 1 pageview.
 2. Xem sản phẩm A 3 lần trong 5 phút → 1 product view; xem B → +1; sau 5 phút xem A → +1.
@@ -304,3 +352,6 @@ Máy dev không có PHP/Composer, nên mọi thứ chạy trong container.
 8. Tắt cron 3 ngày (giả lập bằng option) → chạy aggregator → bù đủ ngày.
 9. REST API: key sai → 401; thiếu scope → 403; vượt 60/phút → 429; summary khớp số dashboard.
 10. Bật "Ép chuyển đến trang Cart" → thêm vào giỏ ở trang danh mục chuyển đến `/cart`.
+11. Dashboard: đổi khoảng ngày, thêm/xóa chip lọc, drill-down, tùy chỉnh thẻ (reload vẫn giữ), URL chia sẻ mở đúng trạng thái.
+12. Settings: lưu từng nhóm, validate lỗi, cảnh báo rời trang, tạo/thu hồi API key, trang Hệ thống toàn xanh.
+13. Widget WP Dashboard hiển thị đúng và tự làm mới số online.
