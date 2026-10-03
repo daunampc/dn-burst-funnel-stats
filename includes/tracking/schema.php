@@ -91,6 +91,7 @@ function dn_bfs_install_schema() {
   qty int(10) unsigned NOT NULL DEFAULT 0,
   value decimal(19,4) NOT NULL DEFAULT 0,
   attempts smallint(5) unsigned NOT NULL DEFAULT 0,
+  last_attempt_at int(10) unsigned NOT NULL DEFAULT 0,
   order_id bigint(20) unsigned DEFAULT NULL,
   channel varchar(20) NOT NULL DEFAULT '',
   utm_source varchar(191) NOT NULL DEFAULT '',

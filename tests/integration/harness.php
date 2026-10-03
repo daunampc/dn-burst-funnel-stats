@@ -15,6 +15,9 @@ $GLOBALS['dn_bfs_it_results'] = array(
 );
 $GLOBALS['dn_bfs_it_now']     = null;
 
+// Dev DB may predate schema changes; dbDelta is idempotent.
+dn_bfs_install_schema();
+
 add_filter(
 	'dn_bfs_now',
 	function ( $now ) {

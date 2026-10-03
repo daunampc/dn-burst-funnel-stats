@@ -80,6 +80,74 @@ dn_bfs_it(
 );
 
 dn_bfs_it(
+	'duplicate add to cart spam after the first minute still hits the rate limit',
+	function () {
+		$now     = time();
+		$session = dn_bfs_it_session( $now );
+
+		dn_bfs_store_track_add_to_cart( $session, 101, 1, 20.0, dn_bfs_request_context( $now, DN_BFS_IT_UA ) );
+
+		$last = null;
+		for ( $i = 0; $i < 21; $i++ ) {
+			$last = dn_bfs_store_track_add_to_cart( $session, 101, 1, 20.0, dn_bfs_request_context( $now + 90, DN_BFS_IT_UA ) );
+		}
+
+		dn_bfs_assert_same( 'rate_atc', $last['reason'] );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'sessions', 'is_spam = 1' ) );
+	}
+);
+
+dn_bfs_it(
+	'duplicate add to cart keeps cart row mirrored',
+	function () {
+		$now     = time();
+		$session = dn_bfs_it_session( $now );
+
+		dn_bfs_store_track_add_to_cart( $session, 101, 1, 20.0, dn_bfs_request_context( $now, DN_BFS_IT_UA ) );
+		dn_bfs_store_track_add_to_cart( $session, 101, 2, 40.0, dn_bfs_request_context( $now + 10, DN_BFS_IT_UA ) );
+
+		dn_bfs_assert_same( 2, dn_bfs_it_count( 'events', 'qty = 3 AND value = 60 AND product_id = 101' ) );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'cart' AND qty = 3" ) );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'add_to_cart' AND qty = 3" ) );
+	}
+);
+
+dn_bfs_it(
+	'add to cart dedupe applies across cookies from the same IP and browser',
+	function () {
+		$now = time();
+		dn_bfs_store_track_add_to_cart( dn_bfs_it_session( $now, 'a' ), 101, 1, 20.0, dn_bfs_request_context( $now, DN_BFS_IT_UA ) );
+		$result = dn_bfs_store_track_add_to_cart( dn_bfs_it_session( $now + 10, 'b' ), 101, 1, 20.0, dn_bfs_request_context( $now + 10, DN_BFS_IT_UA ) );
+
+		dn_bfs_assert_same( 'duplicate', $result['reason'] );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'add_to_cart'" ) );
+	}
+);
+
+dn_bfs_it(
+	'a different browser on the same IP is not deduped',
+	function () {
+		$now = time();
+		$ua2 = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+		dn_bfs_store_track_add_to_cart( dn_bfs_it_session( $now, 'a' ), 101, 1, 20.0, dn_bfs_request_context( $now, DN_BFS_IT_UA ) );
+
+		$hit = array(
+			'vid'   => dn_bfs_it_uid( 'visitor-b' ),
+			'sid'   => dn_bfs_it_uid( 'session-b' ),
+			'path'  => '/',
+			'query' => '',
+			'ref'   => '',
+		);
+		$ctx2    = dn_bfs_request_context( $now + 10, $ua2 );
+		$session = dn_bfs_store_ensure_session( $hit, $ctx2 )['session'];
+		$result  = dn_bfs_store_track_add_to_cart( $session, 101, 1, 20.0, $ctx2 );
+
+		dn_bfs_assert_true( $result['ok'], 'different browser counts' );
+		dn_bfs_assert_same( 2, dn_bfs_it_count( 'events', "type = 'add_to_cart'" ) );
+	}
+);
+
+dn_bfs_it(
 	'checkout is recorded once per session',
 	function () {
 		$now     = time();
