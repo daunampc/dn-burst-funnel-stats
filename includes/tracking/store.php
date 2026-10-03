@@ -414,7 +414,7 @@ function dn_bfs_store_track_add_to_cart( $session, $product_id, $qty, $value, $c
 	$recent = dn_bfs_store_find_recent_event( 'add_to_cart', $session['visitor_uid'], $ctx['ip_hash'], $product_id, $now - (int) $ctx['settings']['dedupe_window'] );
 
 	if ( $recent ) {
-		$wpdb->query( $wpdb->prepare( "UPDATE {$events} SET qty = qty + %d, value = value + %f, attempts = attempts + 1, last_attempt_at = %d WHERE id = %d", $qty, (float) $value, $now, (int) $recent['id'] ) );
+		$wpdb->query( $wpdb->prepare( "UPDATE {$events} SET qty = qty + %d, value = value + %f, attempts = LEAST(attempts + 1, 65535), last_attempt_at = %d WHERE id = %d", $qty, (float) $value, $now, (int) $recent['id'] ) );
 		$wpdb->query(
 			$wpdb->prepare(
 				"UPDATE {$events} SET qty = qty + %d, value = value + %f WHERE type = 'cart' AND session_id = %d AND product_id = %d AND time = %d",
