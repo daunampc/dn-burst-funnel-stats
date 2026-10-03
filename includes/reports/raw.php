@@ -211,6 +211,10 @@ function dn_bfs_raw_get_order( $order_id, $reset = false ) {
 	$order_id = (int) $order_id;
 
 	if ( ! array_key_exists( $order_id, $orders ) ) {
+		if ( count( $orders ) >= 500 ) {
+			$orders = array();
+		}
+
 		$order               = $order_id > 0 ? wc_get_order( $order_id ) : false;
 		$orders[ $order_id ] = $order instanceof WC_Order ? $order : false;
 	}
@@ -222,10 +226,10 @@ function dn_bfs_order_tip_total( $order, $keywords ) {
 	$total = 0.0;
 
 	foreach ( $order->get_items( 'fee' ) as $fee ) {
-		$name = strtolower( (string) $fee->get_name() );
+		$name = dn_bfs_lower( $fee->get_name() );
 
 		foreach ( (array) $keywords as $keyword ) {
-			if ( '' !== $keyword && false !== strpos( $name, strtolower( (string) $keyword ) ) ) {
+			if ( '' !== $keyword && false !== strpos( $name, dn_bfs_lower( $keyword ) ) ) {
 				$total += (float) $fee->get_total();
 				break;
 			}
@@ -297,8 +301,9 @@ function dn_bfs_raw_order_rows( $start, $end, $dimension, $filters ) {
 					$seen[ $key ] = true;
 				}
 
-				$sums[ $key ]['revenue'] += (float) $item->get_total();
-				$sums[ $key ]['items']   += (int) $item->get_quantity();
+				// Product revenue = line totals after discounts minus item refunds, excluding tax/shipping/fees.
+				$sums[ $key ]['revenue'] += max( 0.0, (float) $item->get_total() - abs( (float) $order->get_total_refunded_for_item( $item->get_id() ) ) );
+				$sums[ $key ]['items']   += max( 0, (int) $item->get_quantity() - abs( (int) $order->get_qty_refunded_for_item( $item->get_id() ) ) );
 			}
 
 			continue;

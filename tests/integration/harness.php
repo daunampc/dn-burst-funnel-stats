@@ -15,6 +15,8 @@ $GLOBALS['dn_bfs_it_results'] = array(
 );
 $GLOBALS['dn_bfs_it_now']     = null;
 
+add_filter( 'pre_wp_mail', '__return_false' );
+
 // Dev DB may predate schema changes; dbDelta is idempotent.
 dn_bfs_install_schema();
 

@@ -43,7 +43,7 @@ function dn_bfs_sanitize_wc_report_settings( $settings ) {
 	}
 
 	if ( array_key_exists( 'tip_keywords', $settings ) ) {
-		$clean['tip_keywords'] = array_values( array_unique( array_map( 'strtolower', dn_bfs_normalize_lines( $settings['tip_keywords'] ) ) ) );
+		$clean['tip_keywords'] = array_values( array_unique( array_map( 'dn_bfs_lower', dn_bfs_normalize_lines( $settings['tip_keywords'] ) ) ) );
 	}
 
 	return $clean;
@@ -57,4 +57,8 @@ function dn_bfs_get_wc_report_settings() {
 
 function dn_bfs_order_status_key( $order ) {
 	return 'wc-' . $order->get_status();
+}
+
+function dn_bfs_lower( $value ) {
+	return function_exists( 'mb_strtolower' ) ? mb_strtolower( (string) $value, 'UTF-8' ) : strtolower( (string) $value );
 }

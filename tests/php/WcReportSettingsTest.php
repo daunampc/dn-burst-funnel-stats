@@ -31,6 +31,12 @@ class WcReportSettingsTest extends TestCase {
 		$this->assertSame( array( 'tip', 'bo duoc' ), $clean['tip_keywords'] );
 	}
 
+	public function test_tip_keywords_lowercase_unicode() {
+		$clean = dn_bfs_sanitize_wc_report_settings( array( 'tip_keywords' => "Tiền Boa\nTIỀN BOA" ) );
+
+		$this->assertSame( array( 'tiền boa' ), $clean['tip_keywords'] );
+	}
+
 	public function test_saved_values_are_used() {
 		$GLOBALS['dn_bfs_test_options']['dn_burst_funnel_stats_wc_report_settings'] = array( 'paid_statuses' => array( 'wc-completed' ) );
 

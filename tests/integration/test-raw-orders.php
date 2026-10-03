@@ -118,6 +118,36 @@ dn_bfs_it(
 );
 
 dn_bfs_it(
+	'product revenue and items net out item refunds',
+	function () {
+		dn_bfs_raw_get_order( 0, true );
+
+		$product = dn_bfs_it_first_product();
+		$price   = (float) wc_get_product( $product )->get_price();
+		$day     = dn_bfs_it_day_noon( 1 );
+		$session = dn_bfs_it_seed_session( array( 'started_at' => $day ) );
+		$order   = dn_bfs_it_order( $product, 3, 'processing' );
+		$item_id = current( $order->get_items() )->get_id();
+
+		dn_bfs_it_seed_event( $session, 'order', $day, array( 'order_id' => $order->get_id() ) );
+		wc_create_refund(
+			array(
+				'order_id'   => $order->get_id(),
+				'amount'     => $price,
+				'line_items' => array( $item_id => array( 'qty' => 1, 'refund_total' => $price ) ),
+			)
+		);
+		dn_bfs_raw_get_order( 0, true );
+
+		list( $start, $end ) = dn_bfs_it_day_range( 1 );
+		$row = dn_bfs_raw_order_rows( $start, $end, 'product', array() )[ (string) $product ];
+
+		dn_bfs_assert_same( 2, $row['items'] );
+		dn_bfs_assert_same( round( $price * 2, 4 ), $row['revenue'] );
+	}
+);
+
+dn_bfs_it(
 	'raw rows merge traffic, events and orders',
 	function () {
 		dn_bfs_raw_get_order( 0, true );
