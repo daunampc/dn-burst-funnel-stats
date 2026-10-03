@@ -38,4 +38,11 @@ class GeoTest extends TestCase {
 			dn_bfs_geo_lookup( '81.2.69.142', array( 'HTTP_CF_IPCOUNTRY' => 'VN' ), array( 'prefer_cloudflare' => 0 ), $this->db )
 		);
 	}
+
+	public function test_header_city_is_truncated_on_character_boundaries() {
+		$geo = dn_bfs_geo_from_headers( array( 'HTTP_CF_IPCOUNTRY' => 'VN', 'HTTP_CF_IPCITY' => str_repeat( 'Hà', 60 ) ) );
+
+		$this->assertSame( 100, mb_strlen( $geo['city'], 'UTF-8' ) );
+		$this->assertTrue( mb_check_encoding( $geo['city'], 'UTF-8' ) );
+	}
 }

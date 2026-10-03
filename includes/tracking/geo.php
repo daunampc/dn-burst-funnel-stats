@@ -22,7 +22,7 @@ function dn_bfs_geo_from_headers( $server ) {
 
 	if ( preg_match( '/^[A-Z]{2}$/', $country ) && ! in_array( $country, array( 'XX', 'T1' ), true ) ) {
 		$geo['country'] = $country;
-		$geo['city']    = isset( $server['HTTP_CF_IPCITY'] ) ? substr( sanitize_text_field( (string) $server['HTTP_CF_IPCITY'] ), 0, 100 ) : '';
+		$geo['city']    = isset( $server['HTTP_CF_IPCITY'] ) ? dn_bfs_truncate( sanitize_text_field( (string) $server['HTTP_CF_IPCITY'] ), 100 ) : '';
 	}
 
 	return $geo;
@@ -56,7 +56,7 @@ function dn_bfs_geo_from_mmdb( $ip, $path ) {
 
 	if ( is_array( $record ) ) {
 		$geo['country'] = isset( $record['country']['iso_code'] ) ? (string) $record['country']['iso_code'] : '';
-		$geo['city']    = isset( $record['city']['names']['en'] ) ? substr( (string) $record['city']['names']['en'], 0, 100 ) : '';
+		$geo['city']    = isset( $record['city']['names']['en'] ) ? dn_bfs_truncate( (string) $record['city']['names']['en'], 100 ) : '';
 	}
 
 	return $geo;
