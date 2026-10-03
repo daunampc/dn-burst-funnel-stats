@@ -362,7 +362,7 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 		}
 
 		if ( $period['has_live'] ) {
-			foreach ( dn_bfs_report_raw_rows( $period['live_start_ts'], $now + 1, $dimension, array() ) as $key => $metrics ) {
+			foreach ( dn_bfs_report_raw_rows( $period['live_start_ts'], $period['end_ts'], $dimension, array() ) as $key => $metrics ) {
 				$key          = (string) $key;
 				$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
 			}
