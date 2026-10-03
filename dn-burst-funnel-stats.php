@@ -104,11 +104,7 @@ function dn_burst_funnel_stats_load_tracking()
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
 
   foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events') as $module) {
-    $file = DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking/' . $module . '.php';
-
-    if (file_exists($file)) {
-      require_once $file;
-    }
+    require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking/' . $module . '.php';
   }
 }
 
@@ -216,6 +212,11 @@ function dn_burst_funnel_stats_maybe_migrate()
   }
 
   dn_bfs_install_schema();
+
+  // Retry on the next load if dbDelta could not create every table.
+  if (! dn_bfs_schema_tables_exist()) {
+    return;
+  }
 
   update_option('dn_burst_funnel_stats_schema_version', DN_BURST_FUNNEL_STATS_SCHEMA_VERSION, false);
 }

@@ -15,6 +15,24 @@ function dn_bfs_table( $name ) {
 	return $wpdb->prefix . 'dnbfs_' . $name;
 }
 
+function dn_bfs_schema_tables() {
+	return array( 'visitors', 'sessions', 'pageviews', 'events', 'daily', 'api_keys' );
+}
+
+function dn_bfs_schema_tables_exist(): bool {
+	global $wpdb;
+
+	foreach ( dn_bfs_schema_tables() as $name ) {
+		$table = dn_bfs_table( $name );
+
+		if ( $table !== $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) ) ) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 function dn_bfs_install_schema() {
 	global $wpdb;
 
