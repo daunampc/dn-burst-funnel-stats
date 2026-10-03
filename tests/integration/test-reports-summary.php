@@ -119,3 +119,71 @@ dn_bfs_it(
 		dn_bfs_assert_same( 2, $funnel[1]['value'] );
 	}
 );
+
+function dn_bfs_it_seed_lagging_days( $days_ago_list ) {
+	delete_option( 'dnbfs_last_aggregated_date' );
+	global $wpdb;
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'dnbfs_dirty_' ) . '%' ) );
+
+	foreach ( $days_ago_list as $days_ago ) {
+		$ts = 0 === $days_ago ? time() - 60 : dn_bfs_it_day_noon( $days_ago );
+		$s  = dn_bfs_it_seed_session( array( 'started_at' => $ts, 'visitor_uid' => md5( 'lag' . $days_ago ) ) );
+		dn_bfs_it_seed_pageview( $s, '/', $ts );
+	}
+}
+
+dn_bfs_it(
+	'reports read unaggregated past days from raw data when the aggregator lags',
+	function () {
+		dn_bfs_it_seed_lagging_days( array( 2, 1 ) );
+		update_option( 'dnbfs_last_aggregated_date', dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -3 ), false );
+
+		$summary = dn_bfs_report_summary( dn_bfs_it_range( 6, 0, 'none' ) );
+		dn_bfs_assert_same( 2, $summary['current']['sessions'] );
+		dn_bfs_assert_same( 2, $summary['current']['pageviews'] );
+		dn_bfs_assert_same( 2, $summary['current']['visitors'] );
+		dn_bfs_assert_same( false, $summary['estimated'] );
+
+		$series = dn_bfs_report_timeseries( dn_bfs_it_range( 3, 0, 'none' ), array( 'sessions' ) );
+		dn_bfs_assert_same( array( 0, 1, 1, 0 ), $series['series']['sessions'] );
+	}
+);
+
+dn_bfs_it(
+	'reports combine daily rows up to the watermark with raw data after it without double counting',
+	function () {
+		dn_bfs_it_seed_lagging_days( array( 2, 1, 0 ) );
+		dn_bfs_aggregate_run( time() - DAY_IN_SECONDS );
+
+		$two_days_ago = dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -2 );
+		dn_bfs_assert_same( $two_days_ago, get_option( 'dnbfs_last_aggregated_date' ) );
+		dn_bfs_assert_same( 1, dn_bfs_daily_totals( $two_days_ago, $two_days_ago, array() )['sessions'] );
+
+		$summary = dn_bfs_report_summary( dn_bfs_it_range( 6, 0, 'none' ) );
+		dn_bfs_assert_same( 3, $summary['current']['sessions'] );
+		dn_bfs_assert_same( 3, $summary['current']['visitors'] );
+
+		$series = dn_bfs_report_timeseries( dn_bfs_it_range( 3, 0, 'none' ), array( 'sessions' ) );
+		dn_bfs_assert_same( array( 0, 1, 1, 1 ), $series['series']['sessions'] );
+	}
+);
+
+dn_bfs_it(
+	'a fully aggregated past range reads only daily rows',
+	function () {
+		dn_bfs_it_seed_lagging_days( array( 2, 1, 0 ) );
+		dn_bfs_aggregate_run( time() );
+
+		$range  = dn_bfs_it_range( 6, 2, 'none' );
+		$period = dn_bfs_report_period( $range['current_start'], $range['current_end'], time() );
+		dn_bfs_assert_same( false, $period['has_live'] );
+		dn_bfs_assert_same( false, $period['incomplete'] );
+
+		$summary = dn_bfs_report_summary( $range );
+		dn_bfs_assert_same( 1, $summary['current']['sessions'] );
+		dn_bfs_assert_same( 1, $summary['current']['pageviews'] );
+
+		$series = dn_bfs_report_timeseries( $range, array( 'sessions' ) );
+		dn_bfs_assert_same( array( 0, 0, 0, 0, 1 ), $series['series']['sessions'] );
+	}
+);

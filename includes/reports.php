@@ -2,8 +2,9 @@
 /**
  * Report API shared by the admin dashboard and the public REST API.
  *
- * Past days come from dnbfs_daily; today (and multi-filter queries) come from
- * the raw engine.
+ * Days the aggregator has finished (up to `dnbfs_last_aggregated_date`) come
+ * from dnbfs_daily; later days (today, or days the aggregator has not reached
+ * yet) and multi-filter queries come from the raw engine.
  *
  * @package DN_Burst_Funnel_Stats
  */
@@ -44,25 +45,53 @@ function dn_bfs_report_error_out_of_retention() {
 	);
 }
 
+/**
+ * Splits a period into the part covered by dnbfs_daily (dates up to the
+ * aggregation watermark) and the live part read from raw data (from
+ * `live_start_date` on). Unaggregated days whose raw data was already purged
+ * cannot be recovered: the live part then starts at the raw cutoff and
+ * `incomplete` is true.
+ */
 function dn_bfs_report_period( $start_ts, $end_ts, $now ) {
 	$start_date = wp_date( 'Y-m-d', (int) $start_ts );
 	$end_date   = wp_date( 'Y-m-d', (int) $end_ts );
 	$today      = wp_date( 'Y-m-d', (int) $now );
 	$yesterday  = dn_bfs_date_shift( $today, -1 );
-	$daily_end  = $end_date < $yesterday ? $end_date : $yesterday;
+	$last       = (string) get_option( 'dnbfs_last_aggregated_date', '' );
+	$daily_end  = min( $end_date, $yesterday );
+
+	if ( '' !== $last ) {
+		$daily_end = min( $daily_end, $last );
+	}
+
+	$has_daily  = '' !== $last && $start_date <= $daily_end;
+	$live_start = $has_daily ? max( $start_date, dn_bfs_date_shift( $daily_end, 1 ) ) : $start_date;
+	$live_last  = min( $end_date, $today );
+	$cutoff     = dn_bfs_raw_cutoff_date( $now );
+	$incomplete = false;
+
+	if ( $live_start <= $live_last && $live_start < $cutoff ) {
+		$live_start = $cutoff;
+		$incomplete = true;
+	}
 
 	list( $period_start ) = dn_bfs_day_bounds( $start_date );
 	list( , $last_end )   = dn_bfs_day_bounds( $end_date );
+	list( $live_ts )      = dn_bfs_day_bounds( $live_start );
 
 	return array(
-		'start_date' => $start_date,
-		'end_date'   => $end_date,
-		'today'      => $today,
-		'daily_end'  => $daily_end,
-		'has_daily'  => $start_date <= $daily_end,
-		'has_today'  => $start_date <= $today && $end_date >= $today,
-		'start_ts'   => $period_start,
-		'end_ts'     => min( $last_end, (int) $now + 1 ),
+		'start_date'      => $start_date,
+		'end_date'        => $end_date,
+		'today'           => $today,
+		'daily_end'       => $daily_end,
+		'has_daily'       => $has_daily,
+		'has_today'       => $start_date <= $today && $end_date >= $today,
+		'live_start_date' => $live_start,
+		'live_start_ts'   => $live_ts,
+		'has_live'        => $live_start <= $live_last,
+		'incomplete'      => $incomplete,
+		'start_ts'        => $period_start,
+		'end_ts'          => min( $last_end, (int) $now + 1 ),
 	);
 }
 
@@ -173,20 +202,18 @@ function dn_bfs_report_period_metrics( $start_ts, $end_ts, $filters, $now ) {
 			$metrics = dn_bfs_add_metrics( $metrics, dn_bfs_daily_totals( $period['start_date'], $period['daily_end'], $filters ) );
 		}
 
-		if ( $period['has_today'] ) {
-			list( $today_start ) = dn_bfs_day_bounds( $period['today'] );
-			$rows                = dn_bfs_report_raw_rows( $today_start, (int) $now + 1, 'total', $filters );
-			$metrics             = dn_bfs_add_metrics( $metrics, isset( $rows[''] ) ? $rows[''] : dn_bfs_empty_metrics() );
+		if ( $period['has_live'] ) {
+			$rows    = dn_bfs_report_raw_rows( $period['live_start_ts'], $period['end_ts'], 'total', $filters );
+			$metrics = dn_bfs_add_metrics( $metrics, isset( $rows[''] ) ? $rows[''] : dn_bfs_empty_metrics() );
 		}
 	}
 
-	$estimated = false;
+	$estimated = $period['incomplete'];
 
 	if ( $in_retention ) {
-		$metrics['visitors']     = dn_bfs_raw_distinct_visitors( $period['start_ts'], $period['end_ts'], $filters );
-		$metrics['new_visitors'] = dn_bfs_raw_distinct_visitors( $period['start_ts'], $period['end_ts'], $filters, true );
+		$metrics = array_merge( $metrics, dn_bfs_raw_distinct_visitor_counts( $period['start_ts'], $period['end_ts'], $filters ) );
 	} else {
-		$estimated = $period['start_date'] !== $period['end_date'];
+		$estimated = $estimated || $period['start_date'] !== $period['end_date'];
 	}
 
 	return array(
@@ -251,10 +278,16 @@ function dn_bfs_report_timeseries( $range, $metrics, $filters = array(), $now = 
 			$by_day = dn_bfs_daily_series( $period['start_date'], $period['daily_end'], $filters );
 		}
 
-		if ( $period['has_today'] ) {
-			list( $today_start )         = dn_bfs_day_bounds( $period['today'] );
-			$rows                        = dn_bfs_report_raw_rows( $today_start, $now + 1, 'total', $filters );
-			$by_day[ $period['today'] ] = isset( $rows[''] ) ? $rows[''] : dn_bfs_empty_metrics();
+		if ( $period['has_live'] ) {
+			foreach ( $labels as $date ) {
+				if ( $date < $period['live_start_date'] ) {
+					continue;
+				}
+
+				list( $start, $end ) = dn_bfs_day_bounds( $date );
+				$rows                = dn_bfs_report_raw_rows( $start, min( $end, $now + 1 ), 'total', $filters );
+				$by_day[ $date ]     = isset( $rows[''] ) ? $rows[''] : dn_bfs_empty_metrics();
+			}
 		}
 	}
 
@@ -269,8 +302,9 @@ function dn_bfs_report_timeseries( $range, $metrics, $filters = array(), $now = 
 	}
 
 	return array(
-		'labels' => $labels,
-		'series' => $series,
+		'labels'    => $labels,
+		'series'    => $series,
+		'estimated' => count( $filters ) <= 1 && $period['incomplete'],
 	);
 }
 

@@ -2536,7 +2536,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `$range` = mảng từ `dn_bfs_calculate_date_range()`: cần `current_start`, `current_end`, `previous_start`, `previous_end` (epoch, end bao gồm), `compare` (`none|previous_period|previous_year`).
   - `dn_bfs_report_cache_ttl(): int` (filter `dn_bfs_report_cache_ttl`, mặc định 60; ≤ 0 tắt cache).
   - `dn_bfs_report_raw_rows( int $start, int $end, string $dimension, array $filters ): array` — `dn_bfs_raw_rows` có cache transient `dnbfs_r_*`.
-  - `dn_bfs_report_period( int $start_ts, int $end_ts, int $now ): array` — `start_date, end_date, today, daily_end, has_daily, has_today, start_ts, end_ts` (end_ts loại trừ; không vượt quá `$now + 1`).
+  - `dn_bfs_report_period( int $start_ts, int $end_ts, int $now ): array` — `start_date, end_date, today, daily_end, has_daily, has_today, live_start_date, live_start_ts, has_live, incomplete, start_ts, end_ts` (end_ts loại trừ; không vượt quá `$now + 1`). `daily_end = min( end_date, hôm qua, dnbfs_last_aggregated_date )` (option rỗng → `has_daily = false`); phần live (đọc từ raw) bắt đầu ở `live_start_date` = ngày đầu tiên không có dòng daily trong khoảng; `has_live = live_start_date <= min( end_date, today )`; nếu phần live bắt đầu trước `dn_bfs_raw_cutoff_date( $now )` thì kẹp về cutoff và `incomplete = true` (summary/timeseries/breakdown trả `estimated = true`).
   - `dn_bfs_daily_totals( string $start_date, string $end_date, array $filters ): array` (metrics), `dn_bfs_daily_series( string $start_date, string $end_date, array $filters ): array` (`date => metrics`), `dn_bfs_daily_breakdown( string $start_date, string $end_date, string $dimension ): array` (`dim_value => metrics`).
   - `dn_bfs_report_period_metrics( int $start_ts, int $end_ts, array $filters, int $now ): array|WP_Error` → `array( 'metrics' => derived metrics, 'estimated' => bool )`.
   - `dn_bfs_report_summary( array $range, array $filters = array(), $now = null ): array|WP_Error` → `current`, `previous` (null khi compare none), `change` (`metric => percent`), `estimated`.
@@ -3138,17 +3138,15 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 			$rows = dn_bfs_daily_breakdown( $period['start_date'], $period['daily_end'], $dimension );
 		}
 
-		if ( $period['has_today'] ) {
-			list( $today_start ) = dn_bfs_day_bounds( $period['today'] );
-
-			foreach ( dn_bfs_report_raw_rows( $today_start, $now + 1, $dimension, array() ) as $key => $metrics ) {
+		if ( $period['has_live'] ) {
+			foreach ( dn_bfs_report_raw_rows( $period['live_start_ts'], $now + 1, $dimension, array() ) as $key => $metrics ) {
 				$key          = (string) $key;
 				$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
 			}
 		}
 
 		// Per-row visitors are summed across days, so multi-day breakdowns are estimates.
-		$estimated = $period['start_date'] !== $period['end_date'];
+		$estimated = $period['incomplete'] || $period['start_date'] !== $period['end_date'];
 	}
 
 	$list = array();

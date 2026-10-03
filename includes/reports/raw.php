@@ -200,6 +200,26 @@ function dn_bfs_raw_distinct_visitors( $start, $end, $filters, $new_only = false
 	);
 }
 
+function dn_bfs_raw_distinct_visitor_counts( $start, $end, $filters ) {
+	global $wpdb;
+
+	$row = $wpdb->get_row(
+		$wpdb->prepare(
+			'SELECT COUNT(DISTINCT s.visitor_uid) AS visitors, COUNT(DISTINCT CASE WHEN s.is_new_visitor = 1 THEN s.visitor_uid END) AS new_visitors
+			FROM ' . dn_bfs_table( 'sessions' ) . ' s
+			WHERE s.started_at >= %d AND s.started_at < %d AND s.is_spam = 0 AND s.pageviews > 0' . dn_bfs_raw_filter_sql( $filters, 's' ),
+			(int) $start,
+			(int) $end
+		),
+		ARRAY_A
+	);
+
+	return array(
+		'visitors'     => isset( $row['visitors'] ) ? (int) $row['visitors'] : 0,
+		'new_visitors' => isset( $row['new_visitors'] ) ? (int) $row['new_visitors'] : 0,
+	);
+}
+
 function dn_bfs_raw_get_order( $order_id, $reset = false ) {
 	static $orders = array();
 
