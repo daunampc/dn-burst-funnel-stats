@@ -1510,9 +1510,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `dn_bfs_raw_cutoff_date( int $now ): string`.
   - `dn_bfs_daily_write_rows( string $date, string $dimension, array $rows, array $columns = array() ): void` — upsert; `$columns` rỗng = mọi cột chỉ số.
   - `dn_bfs_aggregate_day( string $date, int $now ): string` → `'full'` hoặc `'orders'`.
-  - `dn_bfs_mark_dirty_date( string $date, int $now = 0 ): void` (bỏ qua ngày ≥ hôm nay), option `dnbfs_dirty_dates` (mảng `date => true`).
+  - `dn_bfs_mark_dirty_date( string $date, int $now = 0 ): void` (bỏ qua ngày ≥ hôm nay / sai định dạng) — mỗi ngày một option `dnbfs_dirty_<Y-m-d>` (autoload no, `add_option`), không mất khi đánh dấu đồng thời.
+  - `dn_bfs_get_dirty_dates(): array` → danh sách `Y-m-d` đã sắp xếp (truy vấn `LIKE 'dnbfs\_dirty\_%'`); runner xóa option của ngày **trước** khi tổng hợp lại (đánh dấu lại trong lúc chạy vẫn còn cho lần sau).
+  - Action `dn_bfs_before_aggregate_day( string $date )` ở đầu `dn_bfs_aggregate_day()`; filter `dn_bfs_aggregate_time_budget` (giây, mặc định 25; kiểm tra trước mỗi ngày trừ ngày đầu, nên mỗi lần chạy luôn xử lý ≥ 1 ngày).
   - `dn_bfs_first_tracked_date(): string` (`''` khi chưa có dữ liệu).
-  - `dn_bfs_aggregate_run( $now = null, $max_days = 31 ): array` → `array( 'ok' => bool, 'reason' => string, 'processed' => string[] )`; option `dnbfs_last_aggregated_date`, khóa `dnbfs_aggregate_lock`.
+  - `dn_bfs_aggregate_run( $now = null, $max_days = 31 ): array` → `array( 'ok' => bool, 'reason' => string, 'processed' => string[] )`; option `dnbfs_last_aggregated_date`, khóa `dnbfs_aggregate_lock` dạng `"<expiry>|<token>"` (hết hạn 10 phút, token `wp_generate_password( 12, false )`; lấy khóa bằng chèn nguyên tử, khóa hết hạn bị chiếm lại; gia hạn sau mỗi ngày và nhả chỉ khi token khớp).
   - `dn_bfs_schedule_crons(): void` (hook `dnbfs_aggregate` hourly, `dnbfs_cleanup` daily), `dn_bfs_unschedule_crons(): void`.
   - Hooks: `woocommerce_order_status_changed`, `woocommerce_order_refunded`, `dn_bfs_session_marked_spam` → đánh dấu ngày cần làm lại.
 

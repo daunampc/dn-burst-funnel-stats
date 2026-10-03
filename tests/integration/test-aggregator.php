@@ -11,10 +11,22 @@ function dn_bfs_it_daily( $date, $dimension, $value = '' ) {
 	);
 }
 
+function dn_bfs_it_clear_dirty_dates() {
+	global $wpdb;
+
+	$names = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'dnbfs_dirty_' ) . '%' ) );
+
+	foreach ( $names as $name ) {
+		delete_option( $name );
+	}
+}
+
 function dn_bfs_it_reset_aggregator_state() {
 	delete_option( 'dnbfs_last_aggregated_date' );
-	delete_option( 'dnbfs_dirty_dates' );
+	dn_bfs_it_clear_dirty_dates();
 	delete_option( 'dnbfs_aggregate_lock' );
+	remove_all_actions( 'dn_bfs_before_aggregate_day' );
+	remove_all_filters( 'dn_bfs_aggregate_time_budget' );
 	dn_bfs_raw_get_order( 0, true );
 }
 
@@ -88,14 +100,18 @@ dn_bfs_it(
 		dn_bfs_it_seed_event( $session, 'order', $day_ts, array( 'order_id' => $order->get_id() ) );
 
 		$order->update_status( 'cancelled' );
-		dn_bfs_assert_true( isset( get_option( 'dnbfs_dirty_dates' )[ $date ] ), 'order date dirty' );
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates() );
 
-		delete_option( 'dnbfs_dirty_dates' );
+		dn_bfs_it_clear_dirty_dates();
 		dn_bfs_store_mark_spam( (int) $session['id'] );
-		dn_bfs_assert_true( isset( get_option( 'dnbfs_dirty_dates' )[ $date ] ), 'spam date dirty' );
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates() );
+
+		dn_bfs_mark_dirty_date( $date );
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates() );
 
 		dn_bfs_mark_dirty_date( wp_date( 'Y-m-d', time() ) );
-		dn_bfs_assert_true( ! isset( get_option( 'dnbfs_dirty_dates' )[ wp_date( 'Y-m-d', time() ) ] ), 'today never dirty' );
+		dn_bfs_mark_dirty_date( 'not-a-date' );
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates() );
 	}
 );
 
@@ -113,11 +129,11 @@ dn_bfs_it(
 		dn_bfs_assert_same( $yesterday, get_option( 'dnbfs_last_aggregated_date' ) );
 
 		$dirty = dn_bfs_date_shift( $yesterday, -5 );
-		update_option( 'dnbfs_dirty_dates', array( $dirty => true ), false );
+		dn_bfs_mark_dirty_date( $dirty );
 		$again = dn_bfs_aggregate_run( time() );
 
 		dn_bfs_assert_same( array( $dirty ), $again['processed'] );
-		dn_bfs_assert_same( array(), get_option( 'dnbfs_dirty_dates' ) );
+		dn_bfs_assert_same( array(), dn_bfs_get_dirty_dates() );
 	}
 );
 
@@ -126,7 +142,7 @@ dn_bfs_it(
 	function () {
 		dn_bfs_it_reset_aggregator_state();
 
-		update_option( 'dnbfs_aggregate_lock', time() + 300, false );
+		update_option( 'dnbfs_aggregate_lock', ( time() + 300 ) . '|other', false );
 		dn_bfs_assert_same( 'locked', dn_bfs_aggregate_run( time() )['reason'] );
 		delete_option( 'dnbfs_aggregate_lock' );
 
@@ -134,6 +150,138 @@ dn_bfs_it(
 		dn_bfs_assert_same( array(), $result['processed'] );
 		dn_bfs_assert_same( dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -1 ), get_option( 'dnbfs_last_aggregated_date' ) );
 		dn_bfs_assert_true( false === get_option( 'dnbfs_aggregate_lock' ), 'lock released' );
+	}
+);
+
+dn_bfs_it(
+	'a date marked dirty during a run survives for the next run',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+
+		$yesterday = dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -1 );
+		$first     = dn_bfs_date_shift( $yesterday, -3 );
+		$other     = dn_bfs_date_shift( $yesterday, -6 );
+		$fired     = false;
+		update_option( 'dnbfs_last_aggregated_date', $yesterday, false );
+		dn_bfs_mark_dirty_date( $first );
+
+		add_action(
+			'dn_bfs_before_aggregate_day',
+			function ( $date ) use ( &$fired, $first, $other ) {
+				if ( ! $fired && $date === $first ) {
+					$fired = true;
+					dn_bfs_mark_dirty_date( $first );
+					dn_bfs_mark_dirty_date( $other );
+				}
+			}
+		);
+
+		$result = dn_bfs_aggregate_run( time() );
+
+		dn_bfs_assert_true( $fired, 'hook fired' );
+		dn_bfs_assert_same( array( $first ), $result['processed'] );
+		dn_bfs_assert_same( array( $other, $first ), dn_bfs_get_dirty_dates() );
+
+		remove_all_actions( 'dn_bfs_before_aggregate_day' );
+		$next = dn_bfs_aggregate_run( time() );
+
+		dn_bfs_assert_same( array( $other, $first ), $next['processed'] );
+		dn_bfs_assert_same( array(), dn_bfs_get_dirty_dates() );
+	}
+);
+
+dn_bfs_it(
+	'aggregate run caps catch-up days at max_days',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+
+		$first = wp_date( 'Y-m-d', dn_bfs_it_day_noon( 5 ) );
+		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 5 ) ) );
+		$result = dn_bfs_aggregate_run( time(), 2 );
+
+		dn_bfs_assert_same( array( $first, dn_bfs_date_shift( $first, 1 ) ), $result['processed'] );
+		dn_bfs_assert_same( dn_bfs_date_shift( $first, 1 ), get_option( 'dnbfs_last_aggregated_date' ) );
+	}
+);
+
+dn_bfs_it(
+	'a zero time budget still processes one day per run',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+		add_filter( 'dn_bfs_aggregate_time_budget', '__return_zero' );
+
+		$first = wp_date( 'Y-m-d', dn_bfs_it_day_noon( 3 ) );
+		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 3 ) ) );
+		dn_bfs_mark_dirty_date( dn_bfs_date_shift( $first, -4 ) );
+
+		dn_bfs_assert_same( array( $first ), dn_bfs_aggregate_run( time() )['processed'] );
+		dn_bfs_assert_same( array( dn_bfs_date_shift( $first, 1 ) ), dn_bfs_aggregate_run( time() )['processed'] );
+		dn_bfs_assert_same( array( dn_bfs_date_shift( $first, 2 ) ), dn_bfs_aggregate_run( time() )['processed'] );
+		dn_bfs_assert_same( array( dn_bfs_date_shift( $first, -4 ) ), dn_bfs_aggregate_run( time() )['processed'] );
+		dn_bfs_assert_same( array(), dn_bfs_get_dirty_dates() );
+		remove_filter( 'dn_bfs_aggregate_time_budget', '__return_zero' );
+	}
+);
+
+dn_bfs_it(
+	'an expired lock is taken over and a live foreign lock is left untouched',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+
+		update_option( 'dnbfs_aggregate_lock', ( time() - 10 ) . '|old', false );
+		dn_bfs_assert_true( dn_bfs_aggregate_run( time() )['ok'], 'expired lock taken over' );
+		dn_bfs_assert_true( false === get_option( 'dnbfs_aggregate_lock' ), 'lock released after takeover' );
+
+		$foreign = ( time() + 300 ) . '|foreign';
+		update_option( 'dnbfs_aggregate_lock', $foreign, false );
+		$result = dn_bfs_aggregate_run( time() );
+
+		dn_bfs_assert_true( ! $result['ok'], 'not ok' );
+		dn_bfs_assert_same( 'locked', $result['reason'] );
+		dn_bfs_assert_same( $foreign, get_option( 'dnbfs_aggregate_lock' ) );
+	}
+);
+
+dn_bfs_it(
+	'orders-only rebuild leaves non-order dimensions and blocked rows alone',
+	function () {
+		global $wpdb;
+
+		dn_bfs_it_reset_aggregator_state();
+		dn_bfs_it_settings( array( 'raw_retention_days' => 7 ) );
+
+		$date = wp_date( 'Y-m-d', dn_bfs_it_day_noon( 10 ) );
+		$wpdb->insert( dn_bfs_table( 'daily' ), array( 'date' => $date, 'dimension' => 'browser', 'dim_hash' => md5( 'Chrome' ), 'dim_value' => 'Chrome', 'sessions' => 3, 'orders' => 4 ) );
+		$wpdb->insert( dn_bfs_table( 'daily' ), array( 'date' => $date, 'dimension' => 'blocked', 'dim_hash' => md5( 'bot' ), 'dim_value' => 'bot', 'pageviews' => 7, 'orders' => 2 ) );
+		$wpdb->insert( dn_bfs_table( 'daily' ), array( 'date' => $date, 'dimension' => 'channel', 'dim_hash' => md5( 'paid' ), 'dim_value' => 'paid', 'sessions' => 2, 'orders' => 5 ) );
+
+		dn_bfs_assert_same( 'orders', dn_bfs_aggregate_day( $date, time() ) );
+
+		dn_bfs_assert_same( '4', dn_bfs_it_daily( $date, 'browser', 'Chrome' )['orders'] );
+		dn_bfs_assert_same( '3', dn_bfs_it_daily( $date, 'browser', 'Chrome' )['sessions'] );
+		dn_bfs_assert_same( '2', dn_bfs_it_daily( $date, 'blocked', 'bot' )['orders'] );
+		dn_bfs_assert_same( '7', dn_bfs_it_daily( $date, 'blocked', 'bot' )['pageviews'] );
+		dn_bfs_assert_same( '0', dn_bfs_it_daily( $date, 'channel', 'paid' )['orders'] );
+		dn_bfs_assert_same( '2', dn_bfs_it_daily( $date, 'channel', 'paid' )['sessions'] );
+	}
+);
+
+dn_bfs_it(
+	'daily writes are batched beyond 200 rows',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+		$day_ts  = dn_bfs_it_day_noon( 1 );
+		$date    = wp_date( 'Y-m-d', $day_ts );
+		$session = dn_bfs_it_seed_session( array( 'started_at' => $day_ts, 'pageviews' => 250, 'is_bounce' => 0 ) );
+
+		for ( $i = 0; $i < 250; $i++ ) {
+			dn_bfs_it_seed_pageview( $session, '/p-' . $i . '/', $day_ts + $i );
+		}
+
+		dn_bfs_assert_same( 'full', dn_bfs_aggregate_day( $date, time() ) );
+		dn_bfs_assert_same( 250, dn_bfs_it_count( 'daily', $GLOBALS['wpdb']->prepare( "date = %s AND dimension = 'page'", $date ) ) );
+		dn_bfs_assert_same( '1', dn_bfs_it_daily( $date, 'page', '/p-249/' )['pageviews'] );
+		dn_bfs_assert_same( '250', dn_bfs_it_daily( $date, 'total' )['pageviews'] );
 	}
 );
 
