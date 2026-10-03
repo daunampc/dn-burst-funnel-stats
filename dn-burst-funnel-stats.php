@@ -3,7 +3,7 @@
 /**
  * Plugin Name: DN Burst Funnel Stats
  * Plugin URI: https://github.com/daunampc/dn-burst-funnel-stats.git
- * Description: Funnel dashboard for WooCommerce using Burst Pro page visit data and WooCommerce order metrics.
+ * Description: Funnel dashboard for WooCommerce with built-in visitor tracking and WooCommerce order metrics.
  * Version: 2.2.0
  * Author: toshstack.dev
  * Author URI: https://toshstack.dev
@@ -32,7 +32,7 @@ define('DN_BURST_FUNNEL_STATS_URL', plugin_dir_url(__FILE__));
 define('DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats');
 
 define('DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '3');
+define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '4');
 
 /**
  * Load translations.
@@ -79,76 +79,6 @@ function dn_burst_funnel_stats_is_plugin_active_safe($plugin_file)
 }
 
 /**
- * Check if any plugin inside a folder is active.
- *
- * Useful when the main plugin file name may be different, but the folder is known.
- *
- * @param string $folder Plugin folder name, for example burst-pro.
- * @return bool
- */
-function dn_burst_funnel_stats_is_any_plugin_in_folder_active($folder)
-{
-  if (! function_exists('get_plugins')) {
-    require_once ABSPATH . 'wp-admin/includes/plugin.php';
-  }
-
-  $plugins = get_plugins();
-
-  foreach ($plugins as $plugin_file => $plugin_data) {
-    if (0 !== strpos($plugin_file, trailingslashit($folder))) {
-      continue;
-    }
-
-    if (dn_burst_funnel_stats_is_plugin_active_safe($plugin_file)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check if Burst Pro is active.
- *
- * This intentionally does not accept the free Burst Statistics plugin.
- *
- * @return bool
- */
-function dn_burst_funnel_stats_is_burst_pro_active()
-{
-  // Best signal when Burst Pro has already loaded.
-  if (defined('BURST_PRO') && BURST_PRO) {
-    return true;
-  }
-
-  // Expected folder from your server: /wp-content/plugins/burst-pro.
-  if (dn_burst_funnel_stats_is_any_plugin_in_folder_active('burst-pro')) {
-    return true;
-  }
-
-  // Fallback: detect active plugin by exact plugin name.
-  if (! function_exists('get_plugins')) {
-    require_once ABSPATH . 'wp-admin/includes/plugin.php';
-  }
-
-  $plugins = get_plugins();
-
-  foreach ($plugins as $plugin_file => $plugin_data) {
-    if (! dn_burst_funnel_stats_is_plugin_active_safe($plugin_file)) {
-      continue;
-    }
-
-    $plugin_name = isset($plugin_data['Name']) ? $plugin_data['Name'] : '';
-
-    if ('Burst Pro' === $plugin_name) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
  * Get missing required dependencies.
  *
  * @return array
@@ -161,11 +91,25 @@ function dn_burst_funnel_stats_missing_dependencies()
     $missing[] = 'WooCommerce';
   }
 
-  if (! dn_burst_funnel_stats_is_burst_pro_active()) {
-    $missing[] = 'Burst Pro';
-  }
-
   return $missing;
+}
+
+/**
+ * Load native tracking modules.
+ *
+ * @return void
+ */
+function dn_burst_funnel_stats_load_tracking()
+{
+  require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
+
+  foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events') as $module) {
+    $file = DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking/' . $module . '.php';
+
+    if (file_exists($file)) {
+      require_once $file;
+    }
+  }
 }
 
 /**
@@ -193,9 +137,7 @@ function dn_burst_funnel_stats_activate()
     );
   }
 
-  if (! function_exists('dn_bfs_get_tracking_settings')) {
-    require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
-  }
+  dn_burst_funnel_stats_load_tracking();
 
   dn_burst_funnel_stats_maybe_migrate();
 }
@@ -261,31 +203,7 @@ function dn_burst_funnel_stats_maybe_migrate()
     return;
   }
 
-  if (false === get_option('dn_burst_funnel_stats_tracking_settings', false)) {
-    update_option(
-      'dn_burst_funnel_stats_tracking_settings',
-      array(
-        'page_tracking_mode'     => 'full',
-        'selected_page_ids'      => array(),
-        'product_tracking_mode'  => 'all',
-        'selected_product_ids'   => array(),
-        'excluded_ips'           => array(),
-        'invalid_excluded_ips'   => array(),
-        'exclude_bots'           => 1,
-        'custom_bot_user_agents' => array(),
-        'default_date_range'     => 'month_to_date',
-        'default_compare'        => 'previous_year',
-        'tracking_enabled'       => 1,
-      ),
-      false
-    );
-  } elseif (function_exists('dn_bfs_get_tracking_settings')) {
-    update_option(
-      'dn_burst_funnel_stats_tracking_settings',
-      dn_bfs_get_tracking_settings(),
-      false
-    );
-  }
+  update_option('dn_burst_funnel_stats_tracking_settings', dn_bfs_get_tracking_settings(), false);
 
   if (false === get_option('dn_burst_funnel_stats_url_tracking_settings', false)) {
     update_option(
@@ -296,6 +214,8 @@ function dn_burst_funnel_stats_maybe_migrate()
       false
     );
   }
+
+  dn_bfs_install_schema();
 
   update_option('dn_burst_funnel_stats_schema_version', DN_BURST_FUNNEL_STATS_SCHEMA_VERSION, false);
 }
@@ -311,7 +231,7 @@ function dn_burst_funnel_stats_bootstrap()
     return;
   }
 
-  require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
+  dn_burst_funnel_stats_load_tracking();
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/date-ranges.php';
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/dashboard.php';
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin-menu.php';
