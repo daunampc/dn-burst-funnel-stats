@@ -199,3 +199,149 @@ function dn_bfs_raw_distinct_visitors( $start, $end, $filters, $new_only = false
 		)
 	);
 }
+
+function dn_bfs_raw_get_order( $order_id, $reset = false ) {
+	static $orders = array();
+
+	if ( $reset ) {
+		$orders = array();
+		return false;
+	}
+
+	$order_id = (int) $order_id;
+
+	if ( ! array_key_exists( $order_id, $orders ) ) {
+		$order               = $order_id > 0 ? wc_get_order( $order_id ) : false;
+		$orders[ $order_id ] = $order instanceof WC_Order ? $order : false;
+	}
+
+	return $orders[ $order_id ];
+}
+
+function dn_bfs_order_tip_total( $order, $keywords ) {
+	$total = 0.0;
+
+	foreach ( $order->get_items( 'fee' ) as $fee ) {
+		$name = strtolower( (string) $fee->get_name() );
+
+		foreach ( (array) $keywords as $keyword ) {
+			if ( '' !== $keyword && false !== strpos( $name, strtolower( (string) $keyword ) ) ) {
+				$total += (float) $fee->get_total();
+				break;
+			}
+		}
+	}
+
+	return $total;
+}
+
+function dn_bfs_raw_order_rows( $start, $end, $dimension, $filters ) {
+	global $wpdb;
+
+	if ( 'page' === $dimension ) {
+		return array();
+	}
+
+	$column = 'total' === $dimension ? "''" : dn_bfs_raw_event_column( $dimension );
+
+	if ( '' === $column ) {
+		return array();
+	}
+
+	if ( 'product' === $dimension ) {
+		$column = "''";
+	}
+
+	// Orders are confirmed revenue: spam sessions are not excluded here.
+	$results = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT e.order_id, {$column} AS dim_value
+			FROM " . dn_bfs_table( 'events' ) . ' e LEFT JOIN ' . dn_bfs_table( 'sessions' ) . " s ON s.id = e.session_id
+			WHERE e.type = 'order' AND e.time >= %d AND e.time < %d" . dn_bfs_raw_filter_sql( $filters, 'e' ),
+			(int) $start,
+			(int) $end
+		),
+		ARRAY_A
+	);
+
+	$settings = dn_bfs_get_wc_report_settings();
+	$sums     = array();
+
+	foreach ( (array) $results as $result ) {
+		$order = dn_bfs_raw_get_order( (int) $result['order_id'] );
+
+		if ( ! $order ) {
+			continue;
+		}
+
+		$status   = dn_bfs_order_status_key( $order );
+		$is_sale  = ! in_array( $status, $settings['sales_excluded_statuses'], true );
+		$order_total = (float) $order->get_total();
+
+		if ( 'product' === $dimension ) {
+			if ( ! $is_sale ) {
+				continue;
+			}
+
+			$seen = array();
+
+			foreach ( $order->get_items() as $item ) {
+				$key = (string) (int) $item->get_product_id();
+
+				if ( ! isset( $sums[ $key ] ) ) {
+					$sums[ $key ] = dn_bfs_empty_metrics();
+				}
+
+				if ( ! isset( $seen[ $key ] ) ) {
+					$sums[ $key ]['orders']++;
+					$seen[ $key ] = true;
+				}
+
+				$sums[ $key ]['revenue'] += (float) $item->get_total();
+				$sums[ $key ]['items']   += (int) $item->get_quantity();
+			}
+
+			continue;
+		}
+
+		$key = (string) $result['dim_value'];
+
+		if ( ! isset( $sums[ $key ] ) ) {
+			$sums[ $key ] = dn_bfs_empty_metrics();
+		}
+
+		if ( $is_sale ) {
+			$sums[ $key ]['orders']++;
+			$sums[ $key ]['revenue'] += max( 0.0, $order_total - (float) $order->get_total_refunded() );
+			$sums[ $key ]['items']   += (int) $order->get_item_count();
+			$sums[ $key ]['tips']    += dn_bfs_order_tip_total( $order, $settings['tip_keywords'] );
+		}
+
+		if ( in_array( $status, $settings['paid_statuses'], true ) ) {
+			$sums[ $key ]['paid'] += $order_total;
+		}
+
+		if ( in_array( $status, $settings['balance_statuses'], true ) ) {
+			$sums[ $key ]['balance'] += $order_total;
+		}
+	}
+
+	return array_map( 'dn_bfs_normalize_metrics', $sums );
+}
+
+function dn_bfs_raw_rows( $start, $end, $dimension, $filters ) {
+	if ( ! in_array( $dimension, dn_bfs_aggregate_dimensions(), true ) ) {
+		return array();
+	}
+
+	$rows = array();
+
+	foreach ( array( 'dn_bfs_raw_traffic_rows', 'dn_bfs_raw_event_rows', 'dn_bfs_raw_order_rows' ) as $source ) {
+		foreach ( call_user_func( $source, $start, $end, $dimension, $filters ) as $key => $metrics ) {
+			$key          = (string) $key;
+			$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
+		}
+	}
+
+	return $rows;
+}
