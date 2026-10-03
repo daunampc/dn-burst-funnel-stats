@@ -43,7 +43,7 @@ function dn_bfs_guard_validate_payload( $raw, $server, $site_host ) {
 		return dn_bfs_guard_fail( 'bad_method' );
 	}
 
-	if ( strlen( $raw ) > 2048 ) {
+	if ( strlen( $raw ) > 4096 ) {
 		return dn_bfs_guard_fail( 'too_large' );
 	}
 
@@ -53,7 +53,7 @@ function dn_bfs_guard_validate_payload( $raw, $server, $site_host ) {
 		return dn_bfs_guard_fail( 'invalid_json' );
 	}
 
-	$type = isset( $data['t'] ) ? (string) $data['t'] : '';
+	$type = isset( $data['t'] ) && is_string( $data['t'] ) ? $data['t'] : '';
 
 	if ( ! in_array( $type, array( 'pv', 'ping' ), true ) ) {
 		return dn_bfs_guard_fail( 'invalid_type' );
@@ -89,7 +89,7 @@ function dn_bfs_guard_validate_payload( $raw, $server, $site_host ) {
 	}
 
 	$path = isset( $data['path'] ) && is_string( $data['path'] ) ? $data['path'] : '';
-	$path = preg_replace( '/[\x00-\x1F\x7F]/', '', strtok( strtok( $path, '#' ), '?' ) );
+	$path = preg_replace( '/[\x00-\x1F\x7F]/', '', substr( $path, 0, strcspn( $path, '?#' ) ) );
 
 	if ( '' === $path || '/' !== $path[0] || 0 === strpos( $path, '//' ) ) {
 		return dn_bfs_guard_fail( 'invalid_path' );

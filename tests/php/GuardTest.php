@@ -69,15 +69,17 @@ class GuardTest extends TestCase {
 		$none    = array( 'REQUEST_METHOD' => 'POST' );
 
 		return array(
-			'method'      => array( json_encode( $valid ), $get, 'bad_method' ),
-			'too large'   => array( str_repeat( 'x', 2049 ), $ok, 'too_large' ),
-			'not json'    => array( 'hello', $ok, 'invalid_json' ),
-			'bad type'    => array( json_encode( array_merge( $valid, array( 't' => 'click' ) ) ), $ok, 'invalid_type' ),
-			'bad vid'     => array( json_encode( array_merge( $valid, array( 'vid' => 'XYZ' ) ) ), $ok, 'invalid_id' ),
-			'foreign'     => array( json_encode( $valid ), $foreign, 'bad_origin' ),
-			'no origin'   => array( json_encode( $valid ), $none, 'bad_origin' ),
-			'bad path'    => array( json_encode( array_merge( $valid, array( 'path' => 'http://x' ) ) ), $ok, 'invalid_path' ),
-			'ping no pv'  => array( json_encode( array( 't' => 'ping', 'vid' => str_repeat( 'a', 32 ), 'sid' => str_repeat( 'b', 32 ), 'pvid' => 0 ) ), $ok, 'invalid_pageview' ),
+			'method'        => array( json_encode( $valid ), $get, 'bad_method' ),
+			'too large'     => array( str_repeat( 'x', 4097 ), $ok, 'too_large' ),
+			'not json'      => array( 'hello', $ok, 'invalid_json' ),
+			'bad type'      => array( json_encode( array_merge( $valid, array( 't' => 'click' ) ) ), $ok, 'invalid_type' ),
+			'array type'    => array( json_encode( array_merge( $valid, array( 't' => array( 'pv' ) ) ) ), $ok, 'invalid_type' ),
+			'bad vid'       => array( json_encode( array_merge( $valid, array( 'vid' => 'XYZ' ) ) ), $ok, 'invalid_id' ),
+			'foreign'       => array( json_encode( $valid ), $foreign, 'bad_origin' ),
+			'no origin'     => array( json_encode( $valid ), $none, 'bad_origin' ),
+			'bad path'      => array( json_encode( array_merge( $valid, array( 'path' => 'http://x' ) ) ), $ok, 'invalid_path' ),
+			'leading query' => array( json_encode( array_merge( $valid, array( 'path' => '?/evil' ) ) ), $ok, 'invalid_path' ),
+			'ping no pv'    => array( json_encode( array( 't' => 'ping', 'vid' => str_repeat( 'a', 32 ), 'sid' => str_repeat( 'b', 32 ), 'pvid' => 0 ) ), $ok, 'invalid_pageview' ),
 		);
 	}
 
@@ -99,6 +101,13 @@ class GuardTest extends TestCase {
 		$this->assertSame( 'other', $result['data']['ptype'] );
 		$this->assertSame( '', $result['data']['ref'] );
 		$this->assertSame( 5, $result['data']['pid'] );
+	}
+
+	public function test_long_but_legitimate_hit_is_accepted() {
+		$raw    = $this->pv( array( 'query' => '?' . str_repeat( 'q', 1023 ), 'ref' => 'https://l.facebook.com/' . str_repeat( 'r', 990 ) ) );
+		$result = dn_bfs_guard_validate_payload( $raw, $this->server(), 'shop.example.com' );
+
+		$this->assertTrue( $result['ok'] );
 	}
 
 	public function test_ping_clamps_engaged() {
