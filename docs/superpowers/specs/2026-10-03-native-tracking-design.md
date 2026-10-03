@@ -80,7 +80,7 @@ Tạo bằng `dbDelta` khi kích hoạt và khi `dn_burst_funnel_stats_schema_ve
 `id` BIGINT PK, `session_id` BIGINT (index), `visitor_uid` CHAR(32), `time` INT (index), `path` VARCHAR(255), `page_type` VARCHAR(12) (`home|product|category|cart|checkout|thankyou|other`), `object_id` BIGINT, `time_on_page` INT.
 
 ### `dnbfs_events`
-`id` BIGINT PK, `session_id` BIGINT (index), `visitor_uid` CHAR(32), `time` INT (index), `type` VARCHAR(16) (`product_view|add_to_cart|cart|checkout_start|order`), `product_id` BIGINT, `qty` INT, `value` DECIMAL(19,4), `attempts` SMALLINT (số lần gọi ATC bị bỏ qua dồn vào sự kiện này), `order_id` BIGINT NULL UNIQUE (chỉ điền khi `type=order`; các loại khác để NULL — UNIQUE cho phép nhiều NULL), cùng các cột ghi kèm cho attribution: `channel`, `utm_source`, `utm_medium`, `utm_campaign`, `country`, `device`.
+`id` BIGINT PK, `session_id` BIGINT (index), `visitor_uid` CHAR(32), `time` INT (index), `type` VARCHAR(16) (`product_view|add_to_cart|cart|checkout_start|order`), `product_id` BIGINT, `qty` INT, `value` DECIMAL(19,4), `attempts` SMALLINT (số lần gọi ATC bị bỏ qua dồn vào sự kiện này, tối đa 65535), `last_attempt_at` INT (thời điểm lần gọi ATC bị bỏ qua gần nhất; dùng cho giới hạn ATC/phút), `order_id` BIGINT NULL UNIQUE (chỉ điền khi `type=order`; các loại khác để NULL — UNIQUE cho phép nhiều NULL), cùng các cột ghi kèm cho attribution: `channel`, `utm_source`, `utm_medium`, `utm_campaign`, `country`, `device`.
 
 Index thêm: (`visitor_uid`, `product_id`, `type`, `time`) cho quy tắc 5 phút.
 
@@ -97,14 +97,15 @@ Dimension: `total`, `page`, `entry`, `exit`, `product`, `channel`, `source`, `me
 ## 4. Thu thập dữ liệu
 
 ### 4.1 Tracker JS
-- File `assets/tracker.js`, không phụ thuộc jQuery, nạp `defer` trên frontend (không nạp trong admin, preview, customizer).
-- PHP in `window.dnbfsPage = {type, id, endpoint}` trong `wp_head` dựa trên `is_front_page`, `is_product`, `is_product_category|is_shop`, `is_cart`, `is_checkout && !is_order_received_page`, `is_order_received_page`.
+- File `assets/tracker.js`, không phụ thuộc jQuery, nạp `defer` trên frontend (không nạp trong admin, preview, customizer, và không nạp cho người dùng đăng nhập có vai trò bị loại trừ).
+- PHP in `window.dnbfsPage = {type, id, endpoint, tz, timeout, cookieDays}` (inline trước script; `tz` = độ lệch múi giờ site tính bằng phút, `timeout` = phút hết phiên, `cookieDays` = số ngày của cookie khách) dựa trên `is_front_page`, `is_product`, `is_product_category|is_shop`, `is_cart`, `is_checkout && !is_order_received_page`, `is_order_received_page`.
 - Cookie (`path=/`, `SameSite=Lax`, `Secure` khi HTTPS):
   - `dnbfs_vid`: 32 hex ngẫu nhiên (`crypto.getRandomValues`), 1 năm.
-  - `dnbfs_sid`: 32 hex, hết hạn sau 30 phút không hoạt động. Phiên mới khi: hết 30 phút, sang ngày mới (múi giờ site, truyền qua `dnbfsPage.tzOffset`), hoặc `utm_campaign` trên URL khác campaign của phiên hiện tại (lưu trong cookie `dnbfs_sc`).
+  - `dnbfs_sid`: 32 hex, hết hạn sau 30 phút không hoạt động. Phiên mới khi: hết 30 phút, sang ngày mới (múi giờ site, truyền qua `dnbfsPage.tz`), hoặc `utm_campaign` trên URL khác campaign của phiên hiện tại. Ngày và campaign của phiên lưu trong cookie `dnbfs_sm` dạng `Y-m-d~campaign` (tách ở dấu `~` đầu tiên; campaign có thể chứa `~`).
+  - Cookie không đặt `domain`, không `HttpOnly` (JS cần đọc); server dùng cùng định dạng.
 - Không gửi gì khi `navigator.webdriver === true` hoặc khi `document.visibilityState === 'prerender'`/trang chưa từng hiển thị (chờ `visibilitychange` sang `visible`).
-- Hit `pv` (khi trang hiển thị lần đầu): `{t:'pv', vid, sid, path, query (chỉ utm_*), ref, ptype, pid, sw}`.
-- Hit `ping`: mỗi 30 giây khi tab đang hiển thị và khi `pagehide`/`visibilitychange→hidden`. Mang `{t:'ping', vid, sid, pvid, engaged}`; `engaged` = giây thực sự hiển thị, tối đa 1800. `pvid` là id pageview trả về từ hit `pv` (khi `sendBeacon` không đọc được phản hồi thì hit `pv` dùng `fetch(..., {keepalive:true})`).
+- Hit `pv` (khi trang hiển thị lần đầu): `{t:'pv', vid, sid, path, query, ref, ptype, pid, sw}`. Tracker gửi toàn bộ query string (tối đa 1024 ký tự sau khi server cắt); server chỉ lưu các trường suy ra từ UTM (`utm_*`, kênh), không lưu query thô.
+- Hit `ping`: mỗi 30 giây khi tab đang hiển thị và khi `visibilitychange→hidden`; `pagehide` chỉ gửi ping nếu trang vẫn đang hiển thị (tránh gửi hai lần). Mang `{t:'ping', vid, sid, pvid, engaged}`; `engaged` = giây thực sự hiển thị, tối đa 1800. `pvid` là id pageview trả về từ hit `pv` (khi `sendBeacon` không đọc được phản hồi thì hit `pv` dùng `fetch(..., {keepalive:true})`).
 - Gửi bằng `navigator.sendBeacon`/`fetch keepalive`, body `text/plain` chứa JSON (tránh preflight).
 
 ### 4.2 Endpoint `/collect`
@@ -118,9 +119,9 @@ Dimension: `total`, `page`, `entry`, `exit`, `product`, `channel`, `source`, `me
 6. `ping`: cập nhật `time_on_page` của pageview (chỉ tăng, không giảm), `duration` và `last_activity` của session.
 
 ### 4.3 Hook WooCommerce (`wc-events.php`)
-- `woocommerce_add_to_cart`: đọc cookie `dnbfs_vid`/`dnbfs_sid` của request; nếu thiếu thì tạo mới và set cookie. Qua guard + quy tắc 5 phút → ghi **đồng thời** sự kiện `add_to_cart` và `cart` (cùng `product_id`, `qty`, `value = giá × qty`) trong một lần gọi. Nếu bị bỏ qua do quy tắc 5 phút: cộng `qty` vào sự kiện đã tính gần nhất, không tạo dòng mới, không ghi `cart`.
+- `woocommerce_add_to_cart`: đọc cookie `dnbfs_vid`/`dnbfs_sid` của request; nếu thiếu thì tạo mới và set cookie (`path=/`, không `domain`). Khi server tạo `dnbfs_sid` mới thì cũng set `dnbfs_sm` = `<ngày site>~<utm_campaign của hit>` để tracker tiếp tục cùng phiên ở trang sau. Request thường (không AJAX/REST/`wc-ajax`) lấy path + query từ `REQUEST_URI` (giữ UTM của landing `?add-to-cart=ID&utm_*`) và dùng `HTTP_REFERER` làm referrer khi khác host; request AJAX/REST lấy path + query từ referer cùng site. Qua guard + quy tắc 5 phút → ghi **đồng thời** sự kiện `add_to_cart` và `cart` (cùng `product_id`, `qty`, `value = giá × qty`) trong một lần gọi. Nếu bị bỏ qua do quy tắc 5 phút: cộng `qty` vào sự kiện đã tính gần nhất, không tạo dòng mới, không ghi `cart`.
 - **Cart trên phễu luôn bằng Add To Cart.** Pageview của trang `/cart` vẫn được lưu cho báo cáo trang nhưng không dùng cho chỉ số Cart.
-- `woocommerce_checkout_order_processed` và `woocommerce_store_api_checkout_order_processed`: lưu meta `_dnbfs_session_uid` và `_dnbfs_visitor_uid` vào đơn, ghi sự kiện `order` (`order_id` duy nhất) kèm attribution của phiên.
+- `woocommerce_checkout_order_processed` và `woocommerce_store_api_checkout_order_processed`: ghi sự kiện `order` (`order_id` duy nhất) kèm attribution của phiên (không có phiên hợp lệ → attribution WooCommerce `_wc_order_attribution_*`, `session_id = 0`, không tạo phiên); chỉ sau khi sự kiện đã được lưu (hoặc đã tồn tại theo `order_id`) mới lưu meta `_dnbfs_session_uid` và `_dnbfs_visitor_uid` vào đơn. Đơn hàng là doanh thu đã được server xác nhận nên **không** qua bộ lọc bot/UA rỗng; chỉ áp dụng tắt tracking, vai trò loại trừ, IP loại trừ.
 - Doanh thu/số đơn khi tổng hợp lấy theo **trạng thái hiện tại** của đơn: loại `cancelled`, `failed`, `checkout-draft`; trừ tiền hoàn (`get_total_refunded`).
 - Tùy chọn Settings **"Ép chuyển đến trang Cart sau khi thêm vào giỏ"**: khi bật, filter `pre_option_woocommerce_cart_redirect_after_add` → `yes` và `pre_option_woocommerce_enable_ajax_add_to_cart` → `no`.
 
@@ -129,11 +130,11 @@ Dimension: `total`, `page`, `entry`, `exit`, `product`, `channel`, `source`, `me
 Lọc theo thứ tự, dừng ở lớp đầu tiên chặn.
 
 ### Lớp 1 — Hợp lệ request (chỉ áp dụng cho `/collect`)
-- Chỉ `POST`; body ≤ 2KB; JSON hợp lệ; `vid`, `sid` khớp `/^[a-f0-9]{32}$/`; `path` bắt đầu bằng `/`, ≤ 255 ký tự.
+- Chỉ `POST`; body ≤ 4096 byte; JSON hợp lệ; `vid`, `sid` khớp `/^[a-f0-9]{32}$/`; `path` bắt đầu bằng `/`, ≤ 255 ký tự.
 - `Origin` hoặc `Referer` phải trùng host của `home_url()`; thiếu cả hai → chặn.
 - Không dùng nonce (trang cache sẽ mang nonce hết hạn).
 
-### Lớp 2 — Loại trừ và bot (cả `/collect` và hook WC)
+### Lớp 2 — Loại trừ và bot (cả `/collect` và hook WC; đơn hàng chỉ áp dụng loại trừ vai trò/IP, không áp dụng lọc bot/UA rỗng)
 - Người dùng đăng nhập có vai trò thuộc danh sách loại trừ (mặc định `administrator`, `shop_manager`).
 - IP thuộc danh sách loại trừ (giữ logic CIDR hiện có trong `tracking.php`).
 - User-agent rỗng, chứa từ khóa bot mặc định (danh sách hiện có + `headlesschrome`, `phantomjs`, `puppeteer`, `selenium`, `lighthouse`, `ptst`, `python-requests`, `curl`, `wget`, `go-http-client`, `axios`, `node-fetch`) hoặc từ khóa tự thêm.
