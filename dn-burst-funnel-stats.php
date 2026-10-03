@@ -103,7 +103,7 @@ function dn_burst_funnel_stats_load_tracking()
 {
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
 
-  foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events') as $module) {
+  foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events', 'aggregator') as $module) {
     require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking/' . $module . '.php';
   }
 }
@@ -151,6 +151,19 @@ function dn_burst_funnel_stats_activate()
   dn_burst_funnel_stats_maybe_migrate();
 }
 register_activation_hook(__FILE__, 'dn_burst_funnel_stats_activate');
+
+/**
+ * Remove plugin cron events on deactivation.
+ *
+ * @return void
+ */
+function dn_burst_funnel_stats_deactivate()
+{
+  if (function_exists('dn_bfs_unschedule_crons')) {
+    dn_bfs_unschedule_crons();
+  }
+}
+register_deactivation_hook(__FILE__, 'dn_burst_funnel_stats_deactivate');
 
 /**
  * Show admin notice when required dependencies are missing.
@@ -255,6 +268,7 @@ function dn_burst_funnel_stats_bootstrap()
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/ajax.php';
 
   dn_burst_funnel_stats_maybe_migrate();
+  dn_bfs_schedule_crons();
   dn_burst_dash_schedule_refresh_event();
 }
 add_action('plugins_loaded', 'dn_burst_funnel_stats_bootstrap');
