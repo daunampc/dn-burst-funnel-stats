@@ -137,6 +137,7 @@ Lọc theo thứ tự, dừng ở lớp đầu tiên chặn.
 - Người dùng đăng nhập có vai trò thuộc danh sách loại trừ (mặc định `administrator`, `shop_manager`).
 - IP thuộc danh sách loại trừ (giữ logic CIDR hiện có trong `tracking.php`).
 - User-agent rỗng, chứa từ khóa bot mặc định (danh sách hiện có + `headlesschrome`, `phantomjs`, `puppeteer`, `selenium`, `lighthouse`, `ptst`, `python-requests`, `curl`, `wget`, `go-http-client`, `axios`, `node-fetch`) hoặc từ khóa tự thêm.
+- IP client lấy theo setting `client_ip_source` (mặc định `auto`) để giới hạn theo IP không bị gộp sau Cloudflare/proxy.
 
 ### Lớp 3 — Chống trùng lặp
 | Đối tượng | Quy tắc |
@@ -231,7 +232,7 @@ Mỗi nhóm một form riêng, nút Lưu riêng, validate tức thì, cảnh bá
 | Nhóm | Cấu hình |
 |---|---|
 | Chung | Bật/tắt tracking, khoảng ngày mặc định, so sánh mặc định |
-| Tracking | Vai trò loại trừ, IP/CIDR loại trừ (báo dòng không hợp lệ), chế độ trang (tất cả/chọn) + chọn trang, chế độ sản phẩm (tất cả/chọn) + chọn sản phẩm, thời gian hết phiên (mặc định 30 phút), thời hạn cookie (mặc định 365 ngày), tham số URL bỏ qua khi lưu path (mặc định `fbclid`, `gclid`, `_ga`…) |
+| Tracking | Vai trò loại trừ, IP/CIDR loại trừ (báo dòng không hợp lệ), chế độ trang (tất cả/chọn) + chọn trang, chế độ sản phẩm (tất cả/chọn) + chọn sản phẩm, thời gian hết phiên (mặc định 30 phút), thời hạn cookie (mặc định 365 ngày), nguồn IP client (`auto` = CF-Connecting-IP khi có CF-Ray, `remote_addr`, `x_forwarded_for`, `x_real_ip`) |
 | Chống spam | Cửa sổ chống trùng sản phẩm (5 phút), bỏ qua F5 (10 giây), 4 ngưỡng giới hạn tần suất, từ khóa bot tự thêm, chặn UA rỗng, biểu đồ lượt bị chặn theo lý do 7 ngày |
 | WooCommerce | Ép chuyển đến trang Cart, trạng thái đơn tính Sales / Paid / Balance, từ khóa phí Tip |
 | GeoIP | Ưu tiên Cloudflare, license key MaxMind, trạng thái file (ngày cập nhật, dung lượng), nút "Cập nhật ngay" |
@@ -286,6 +287,8 @@ dn-burst-funnel-stats.php
 includes/
   tracking.php            (settings tracking, IP/CIDR, bot keywords — mở rộng)
   tracking/schema.php
+  tracking/context.php    (ngữ cảnh request: now, host, ip_hash, roles)
+  tracking/store.php      (ghi DB, chống trùng, giới hạn, đánh dấu spam)
   tracking/collector.php
   tracking/guard.php
   tracking/ua-parser.php

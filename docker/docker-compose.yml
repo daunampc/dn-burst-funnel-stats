@@ -1,0 +1,63 @@
+name: dnbfs
+
+x-wp-env: &wp-env
+  WORDPRESS_DB_HOST: db
+  WORDPRESS_DB_USER: wordpress
+  WORDPRESS_DB_PASSWORD: wordpress
+  WORDPRESS_DB_NAME: wordpress
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      <<: *wp-env
+      WORDPRESS_DEBUG: "1"
+    volumes:
+      - wp_data:/var/www/html
+      - ../:/var/www/html/wp-content/plugins/dn-burst-funnel-stats
+
+  wpcli:
+    image: wordpress:cli-php8.2
+    profiles: ["tools"]
+    user: "33:33"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *wp-env
+    working_dir: /var/www/html
+    volumes:
+      - wp_data:/var/www/html
+      - ../:/var/www/html/wp-content/plugins/dn-burst-funnel-stats
+
+  phpunit:
+    image: composer:2
+    profiles: ["tools"]
+    working_dir: /app
+    volumes:
+      - ../:/app
+    entrypoint: ["sh", "-c", "composer install --no-interaction --no-progress --quiet && vendor/bin/phpunit \"$@\"", "--"]
+
+volumes:
+  db_data:
+  wp_data:
