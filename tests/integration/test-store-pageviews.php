@@ -170,3 +170,47 @@ dn_bfs_it(
 		dn_bfs_assert_same( '2', $bot );
 	}
 );
+
+dn_bfs_it(
+	'visitor sessions_count increments once per new session',
+	function () {
+		global $wpdb;
+
+		$now      = time();
+		$vid      = dn_bfs_it_uid( 'visitor-1' );
+		$visitors = dn_bfs_table( 'visitors' );
+
+		dn_bfs_store_track_pageview( dn_bfs_it_hit(), dn_bfs_it_ctx( $now ) );
+		dn_bfs_store_track_pageview( dn_bfs_it_hit( array( 'sid' => dn_bfs_it_uid( 'session-2' ) ) ), dn_bfs_it_ctx( $now + 5 ) );
+
+		dn_bfs_assert_same( '2', $wpdb->get_var( $wpdb->prepare( "SELECT sessions_count FROM {$visitors} WHERE visitor_uid = %s", $vid ) ) );
+		dn_bfs_assert_same( '1', dn_bfs_store_get_session( dn_bfs_it_uid( 'session-1' ) )['is_new_visitor'] );
+		dn_bfs_assert_same( '0', dn_bfs_store_get_session( dn_bfs_it_uid( 'session-2' ) )['is_new_visitor'] );
+
+		$other = dn_bfs_it_hit( array( 'vid' => dn_bfs_it_uid( 'visitor-2' ), 'sid' => dn_bfs_it_uid( 'session-3' ) ) );
+		dn_bfs_store_ensure_session( $other, dn_bfs_it_ctx( $now + 10 ) );
+		dn_bfs_store_ensure_session( $other, dn_bfs_it_ctx( $now + 11 ) );
+
+		dn_bfs_assert_same( '1', $wpdb->get_var( $wpdb->prepare( "SELECT sessions_count FROM {$visitors} WHERE visitor_uid = %s", dn_bfs_it_uid( 'visitor-2' ) ) ) );
+	}
+);
+
+dn_bfs_it(
+	'ping is rejected for unknown, foreign or spam sessions',
+	function () {
+		$now = time();
+		dn_bfs_store_track_pageview( dn_bfs_it_hit(), dn_bfs_it_ctx( $now ) );
+		$session = dn_bfs_store_get_session( dn_bfs_it_uid( 'session-1' ) );
+		$ping    = array( 't' => 'ping', 'vid' => dn_bfs_it_uid( 'visitor-1' ), 'sid' => dn_bfs_it_uid( 'session-1' ), 'pvid' => 1, 'engaged' => 10 );
+
+		$unknown = dn_bfs_store_track_ping( array_merge( $ping, array( 'sid' => dn_bfs_it_uid( 'nope' ) ) ), dn_bfs_it_ctx( $now + 1 ) );
+		dn_bfs_assert_same( 'unknown_session', $unknown['reason'] );
+
+		$foreign = dn_bfs_store_track_ping( array_merge( $ping, array( 'vid' => dn_bfs_it_uid( 'visitor-9' ) ) ), dn_bfs_it_ctx( $now + 1 ) );
+		dn_bfs_assert_same( 'session_mismatch', $foreign['reason'] );
+
+		dn_bfs_store_mark_spam( (int) $session['id'] );
+		$spam = dn_bfs_store_track_ping( $ping, dn_bfs_it_ctx( $now + 2 ) );
+		dn_bfs_assert_same( 'spam', $spam['reason'] );
+	}
+);

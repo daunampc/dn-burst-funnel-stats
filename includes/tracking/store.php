@@ -94,19 +94,6 @@ function dn_bfs_store_ensure_session( $hit, $ctx ) {
 		}
 	}
 
-	$visitors_table = dn_bfs_table( 'visitors' );
-	$is_new         = null === $wpdb->get_var( $wpdb->prepare( "SELECT visitor_uid FROM {$visitors_table} WHERE visitor_uid = %s", $hit['vid'] ) );
-
-	$wpdb->query(
-		$wpdb->prepare(
-			"INSERT INTO {$visitors_table} (visitor_uid, first_seen, last_seen, sessions_count) VALUES (%s, %d, %d, 1)
-			ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen), sessions_count = sessions_count + 1",
-			$hit['vid'],
-			$now,
-			$now
-		)
-	);
-
 	$utm      = dn_bfs_extract_utm( $hit['query'] );
 	$ref_host = dn_bfs_referrer_host( $hit['ref'] );
 	$ref_host = $ref_host === $ctx['site_host'] ? '' : $ref_host;
@@ -122,7 +109,7 @@ function dn_bfs_store_ensure_session( $hit, $ctx ) {
 			$hit['vid'],
 			$now,
 			$now,
-			$is_new ? 1 : 0,
+			0,
 			$hit['path'],
 			$hit['path'],
 			$ref_host,
@@ -141,10 +128,34 @@ function dn_bfs_store_ensure_session( $hit, $ctx ) {
 		)
 	);
 
+	if ( 1 === (int) $wpdb->rows_affected ) {
+		// Only the request whose session INSERT won touches the visitor row.
+		$visitors_table = dn_bfs_table( 'visitors' );
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"INSERT INTO {$visitors_table} (visitor_uid, first_seen, last_seen, sessions_count) VALUES (%s, %d, %d, 1)
+				ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen), sessions_count = sessions_count + 1",
+				$hit['vid'],
+				$now,
+				$now
+			)
+		);
+
+		// MySQL reports 1 affected row for a fresh insert and 2 for an update.
+		if ( 1 === (int) $wpdb->rows_affected ) {
+			$wpdb->query( $wpdb->prepare( "UPDATE {$sessions_table} SET is_new_visitor = 1 WHERE session_uid = %s", $hit['sid'] ) );
+		}
+	}
+
 	$session = dn_bfs_store_get_session( $hit['sid'] );
 
 	if ( ! $session ) {
 		return dn_bfs_store_result( false, 'db_error' );
+	}
+
+	if ( $session['visitor_uid'] !== $hit['vid'] ) {
+		return dn_bfs_store_result( false, 'session_mismatch' );
 	}
 
 	return dn_bfs_store_result( true, '', array( 'session' => $session ) );
@@ -198,10 +209,10 @@ function dn_bfs_store_track_pageview( $hit, $ctx ) {
 
 	$pvid = (int) $wpdb->insert_id;
 
-	// MySQL evaluates SET assignments left to right, so is_bounce sees the incremented pageviews.
+	// is_bounce is computed from the pre-increment value and placed first, so it does not depend on SET evaluation order.
 	$wpdb->query(
 		$wpdb->prepare(
-			'UPDATE ' . dn_bfs_table( 'sessions' ) . ' SET pageviews = pageviews + 1, is_bounce = IF(pageviews > 1, 0, 1), last_activity = %d, exit_path = %s WHERE id = %d',
+			'UPDATE ' . dn_bfs_table( 'sessions' ) . ' SET is_bounce = IF(pageviews >= 1, 0, 1), pageviews = pageviews + 1, last_activity = %d, exit_path = %s WHERE id = %d',
 			$now,
 			$hit['path'],
 			$session_id
