@@ -13,9 +13,17 @@
 	var META = 'dnbfs_sm';
 	var HEX = /^[a-f0-9]{32}$/;
 
+	function decode(value) {
+		try {
+			return decodeURIComponent(value);
+		} catch (e) {
+			return value;
+		}
+	}
+
 	function getCookie(name) {
 		var match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
-		return match ? decodeURIComponent(match[1]) : '';
+		return match ? decode(match[1]) : '';
 	}
 
 	function setCookie(name, value, seconds) {
@@ -47,7 +55,7 @@
 
 	function param(name) {
 		var match = location.search.match(new RegExp('[?&]' + name + '=([^&]*)'));
-		return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : '';
+		return match ? decode(match[1].replace(/\+/g, ' ')) : '';
 	}
 
 	var vid = getCookie(VISITOR);
@@ -58,7 +66,10 @@
 
 	var timeout = (cfg.timeout || 30) * 60;
 	var sid = getCookie(SESSION);
-	var meta = getCookie(META).split('~');
+	var rawMeta = getCookie(META);
+	var cut = rawMeta.indexOf('~');
+	// Split on the first '~' only: campaigns may contain '~'.
+	var meta = cut === -1 ? [rawMeta, ''] : [rawMeta.slice(0, cut), rawMeta.slice(cut + 1)];
 	var day = siteDay();
 	var campaign = param('utm_campaign');
 
@@ -177,8 +188,11 @@
 
 	document.addEventListener('visibilitychange', onVisibilityChange);
 	window.addEventListener('pagehide', function () {
-		pauseClock();
-		ping();
+		// The visibilitychange->hidden ping already went out if the clock is paused.
+		if (visibleSince !== null) {
+			pauseClock();
+			ping();
+		}
 	});
 
 	onVisibilityChange();
