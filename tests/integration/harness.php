@@ -56,9 +56,11 @@ function dn_bfs_it_reset() {
 	wp_set_current_user( 0 );
 
 	$_COOKIE                    = array();
+	$_GET                       = array();
 	$_SERVER['REMOTE_ADDR']     = '203.0.113.10';
 	$_SERVER['HTTP_USER_AGENT'] = DN_BFS_IT_UA;
 	$_SERVER['HTTP_REFERER']    = '';
+	$_SERVER['REQUEST_URI']     = '/';
 	unset( $_SERVER['HTTP_CF_RAY'], $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_CF_IPCOUNTRY'] );
 }
 

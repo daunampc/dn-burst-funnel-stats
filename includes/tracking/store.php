@@ -299,6 +299,12 @@ function dn_bfs_store_insert_event( $session, $type, $fields, $now ) {
 	return (int) $wpdb->insert_id;
 }
 
+function dn_bfs_store_order_event_exists( $order_id ) {
+	global $wpdb;
+
+	return (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM ' . dn_bfs_table( 'events' ) . ' WHERE order_id = %d', (int) $order_id ) );
+}
+
 function dn_bfs_store_find_recent_event( $type, $visitor_uid, $ip_hash, $product_id, $since ) {
 	global $wpdb;
 

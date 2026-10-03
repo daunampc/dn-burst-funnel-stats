@@ -9,23 +9,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-function dn_bfs_wc_cookie_id( $name, $lifetime ) {
-	$value = isset( $_COOKIE[ $name ] ) && is_string( $_COOKIE[ $name ] ) ? sanitize_key( wp_unslash( $_COOKIE[ $name ] ) ) : '';
-
-	if ( preg_match( '/^[a-f0-9]{32}$/', $value ) ) {
-		return $value;
-	}
-
-	$value = bin2hex( random_bytes( 16 ) );
-
+/**
+ * Sets a tracking cookie the way tracker.js does: path /, no domain, readable by JS.
+ */
+function dn_bfs_wc_set_cookie( $name, $value, $lifetime ) {
 	if ( ! headers_sent() ) {
-		setcookie(
+		setrawcookie(
 			$name,
-			$value,
+			rawurlencode( $value ),
 			array(
 				'expires'  => time() + $lifetime,
-				'path'     => COOKIEPATH ? COOKIEPATH : '/',
-				'domain'   => COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
+				'path'     => '/',
 				'secure'   => is_ssl(),
 				'httponly' => false,
 				'samesite' => 'Lax',
@@ -34,28 +28,83 @@ function dn_bfs_wc_cookie_id( $name, $lifetime ) {
 	}
 
 	$_COOKIE[ $name ] = $value;
+}
+
+function dn_bfs_wc_read_cookie_id( $name ) {
+	$value = isset( $_COOKIE[ $name ] ) && is_string( $_COOKIE[ $name ] ) ? sanitize_key( wp_unslash( $_COOKIE[ $name ] ) ) : '';
+
+	return preg_match( '/^[a-f0-9]{32}$/', $value ) ? $value : '';
+}
+
+function dn_bfs_wc_cookie_id( $name, $lifetime ) {
+	$value = dn_bfs_wc_read_cookie_id( $name );
+
+	if ( '' === $value ) {
+		$value = bin2hex( random_bytes( 16 ) );
+		dn_bfs_wc_set_cookie( $name, $value, $lifetime );
+	}
 
 	return $value;
 }
 
+/**
+ * Page the visitor is on. Classic (non-AJAX) requests use the current URL so
+ * `?add-to-cart=ID&utm_*` landings keep their attribution; AJAX and REST
+ * requests fall back to the same-site referer.
+ */
+function dn_bfs_wc_request_location() {
+	$referer   = isset( $_SERVER['HTTP_REFERER'] ) ? esc_url_raw( wp_unslash( $_SERVER['HTTP_REFERER'] ) ) : '';
+	$ref_host  = dn_bfs_referrer_host( $referer );
+	$site_host = dn_bfs_site_host();
+	$is_ajax   = wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) || ! empty( $_GET['wc-ajax'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	$location  = array(
+		'path'  => '/',
+		'query' => '',
+		'ref'   => '',
+	);
+
+	if ( ! $is_ajax ) {
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/'; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$url = (string) $uri;
+	} elseif ( '' !== $referer && $ref_host === $site_host ) {
+		$url = $referer;
+	} else {
+		return $location;
+	}
+
+	$path              = (string) wp_parse_url( $url, PHP_URL_PATH );
+	$location['path']  = '' === $path ? '/' : substr( $path, 0, 255 );
+	$location['query'] = (string) wp_parse_url( $url, PHP_URL_QUERY );
+
+	if ( ! $is_ajax && '' !== $ref_host && $ref_host !== $site_host ) {
+		$location['ref'] = $referer;
+	}
+
+	return $location;
+}
+
 function dn_bfs_wc_session_hit() {
 	$settings = dn_bfs_get_tracking_settings();
-	$referer  = isset( $_SERVER['HTTP_REFERER'] ) ? esc_url_raw( wp_unslash( $_SERVER['HTTP_REFERER'] ) ) : '';
-	$path     = '/';
-	$query    = '';
+	$location = dn_bfs_wc_request_location();
+	$timeout  = (int) $settings['session_timeout'] * MINUTE_IN_SECONDS;
+	$is_new   = '' === dn_bfs_wc_read_cookie_id( DN_BFS_COOKIE_SESSION );
+	$vid      = dn_bfs_wc_cookie_id( DN_BFS_COOKIE_VISITOR, (int) $settings['cookie_days'] * DAY_IN_SECONDS );
+	$sid      = dn_bfs_wc_cookie_id( DN_BFS_COOKIE_SESSION, $timeout );
 
-	if ( '' !== $referer && dn_bfs_referrer_host( $referer ) === dn_bfs_site_host() ) {
-		$path  = (string) wp_parse_url( $referer, PHP_URL_PATH );
-		$path  = '' === $path ? '/' : substr( $path, 0, 255 );
-		$query = (string) wp_parse_url( $referer, PHP_URL_QUERY );
+	if ( $is_new ) {
+		// Same format as tracker.js (raw utm_campaign) so the next pageview keeps this session id.
+		$params = array();
+		parse_str( $location['query'], $params );
+		$campaign = isset( $params['utm_campaign'] ) && is_scalar( $params['utm_campaign'] ) ? (string) $params['utm_campaign'] : '';
+		dn_bfs_wc_set_cookie( DN_BFS_COOKIE_META, wp_date( 'Y-m-d', dn_bfs_now() ) . '~' . $campaign, $timeout );
 	}
 
 	return array(
-		'vid'   => dn_bfs_wc_cookie_id( DN_BFS_COOKIE_VISITOR, (int) $settings['cookie_days'] * DAY_IN_SECONDS ),
-		'sid'   => dn_bfs_wc_cookie_id( DN_BFS_COOKIE_SESSION, (int) $settings['session_timeout'] * MINUTE_IN_SECONDS ),
-		'path'  => $path,
-		'query' => $query,
-		'ref'   => '',
+		'vid'   => $vid,
+		'sid'   => $sid,
+		'path'  => $location['path'],
+		'query' => $location['query'],
+		'ref'   => $location['ref'],
 	);
 }
 
@@ -131,6 +180,11 @@ function dn_bfs_wc_order_fallback_session( $order, $visitor_uid ) {
 	);
 }
 
+/**
+ * Records a placed order. Orders are server-confirmed revenue, so only the
+ * site-owner exclusions apply (disabled, excluded role, excluded IP), not the
+ * bot or empty user-agent filters.
+ */
 function dn_bfs_track_order( $order ) {
 	if ( ! $order instanceof WC_Order ) {
 		return dn_bfs_store_result( false, 'invalid_order' );
@@ -140,7 +194,7 @@ function dn_bfs_track_order( $order ) {
 	$ctx    = dn_bfs_wc_context( $now );
 	$reason = dn_bfs_guard_check_visitor( $ctx );
 
-	if ( '' !== $reason ) {
+	if ( '' !== $reason && ! in_array( $reason, array( 'bot', 'empty_ua' ), true ) ) {
 		return dn_bfs_store_result( false, $reason );
 	}
 
@@ -148,11 +202,9 @@ function dn_bfs_track_order( $order ) {
 		return dn_bfs_store_result( false, 'duplicate' );
 	}
 
-	$cookie_vid = isset( $_COOKIE[ DN_BFS_COOKIE_VISITOR ] ) && is_string( $_COOKIE[ DN_BFS_COOKIE_VISITOR ] ) ? sanitize_key( wp_unslash( $_COOKIE[ DN_BFS_COOKIE_VISITOR ] ) ) : '';
-	$cookie_sid = isset( $_COOKIE[ DN_BFS_COOKIE_SESSION ] ) && is_string( $_COOKIE[ DN_BFS_COOKIE_SESSION ] ) ? sanitize_key( wp_unslash( $_COOKIE[ DN_BFS_COOKIE_SESSION ] ) ) : '';
-	$vid        = preg_match( '/^[a-f0-9]{32}$/', $cookie_vid ) ? $cookie_vid : '';
-	$sid        = preg_match( '/^[a-f0-9]{32}$/', $cookie_sid ) ? $cookie_sid : '';
-	$existing   = '' !== $sid ? dn_bfs_store_get_session( $sid ) : null;
+	$vid      = dn_bfs_wc_read_cookie_id( DN_BFS_COOKIE_VISITOR );
+	$sid      = dn_bfs_wc_read_cookie_id( DN_BFS_COOKIE_SESSION );
+	$existing = '' !== $sid ? dn_bfs_store_get_session( $sid ) : null;
 
 	if ( $existing && $existing['visitor_uid'] === $vid && '1' !== (string) $existing['is_spam'] ) {
 		$session = $existing;
@@ -160,10 +212,6 @@ function dn_bfs_track_order( $order ) {
 		$session = dn_bfs_wc_order_fallback_session( $order, $vid );
 		$sid     = '';
 	}
-
-	$order->update_meta_data( '_dnbfs_session_uid', $sid );
-	$order->update_meta_data( '_dnbfs_visitor_uid', $vid );
-	$order->save_meta_data();
 
 	$inserted = dn_bfs_store_insert_event(
 		$session,
@@ -175,6 +223,14 @@ function dn_bfs_track_order( $order ) {
 		),
 		$now
 	);
+
+	if ( $inserted <= 0 && ! dn_bfs_store_order_event_exists( $order->get_id() ) ) {
+		return dn_bfs_store_result( false, 'db_error' );
+	}
+
+	$order->update_meta_data( '_dnbfs_session_uid', $sid );
+	$order->update_meta_data( '_dnbfs_visitor_uid', $vid );
+	$order->save_meta_data();
 
 	return dn_bfs_store_result( $inserted > 0, $inserted > 0 ? '' : 'duplicate' );
 }

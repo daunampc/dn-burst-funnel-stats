@@ -20,6 +20,7 @@ dn_bfs_it(
 		$_COOKIE['dnbfs_vid']    = dn_bfs_it_uid( 'visitor-1' );
 		$_COOKIE['dnbfs_sid']    = dn_bfs_it_uid( 'session-1' );
 		$_SERVER['HTTP_REFERER'] = home_url( '/product/x/?utm_campaign=sale-10&utm_source=facebook&utm_medium=cpc' );
+		$_GET['wc-ajax']         = 'add_to_cart';
 
 		wc_load_cart();
 		WC()->cart->empty_cart();
@@ -50,6 +51,60 @@ dn_bfs_it(
 );
 
 dn_bfs_it(
+	'add to cart landing without tracker cookies takes attribution from the current url and is continued by the tracker',
+	function () {
+		list( $a ) = dn_bfs_it_products( 1 );
+
+		$_SERVER['REQUEST_URI']  = '/product/x/?add-to-cart=' . $a . '&utm_source=facebook&utm_medium=cpc&utm_campaign=sale-10';
+		$_SERVER['HTTP_REFERER'] = 'https://l.facebook.com/';
+
+		$result = dn_bfs_track_add_to_cart( $a, 1, 10.0, $a );
+
+		dn_bfs_assert_true( $result['ok'], 'ok' );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'sessions' ) );
+
+		$session = dn_bfs_store_get_session( $_COOKIE['dnbfs_sid'] );
+		dn_bfs_assert_same( 'sale-10', $session['utm_campaign'] );
+		dn_bfs_assert_same( 'paid', $session['channel'] );
+		dn_bfs_assert_same( 'l.facebook.com', $session['referrer_host'] );
+		dn_bfs_assert_same( '/product/x/', $session['entry_path'] );
+		dn_bfs_assert_same( 0, strpos( $_COOKIE['dnbfs_sm'], wp_date( 'Y-m-d', time() ) . '~' ), 'meta cookie day' );
+		dn_bfs_assert_same( wp_date( 'Y-m-d', time() ) . '~sale-10', $_COOKIE['dnbfs_sm'] );
+
+		$response = dn_bfs_it_collect(
+			array(
+				't'     => 'pv',
+				'vid'   => $_COOKIE['dnbfs_vid'],
+				'sid'   => $_COOKIE['dnbfs_sid'],
+				'path'  => '/cart/',
+				'query' => '',
+				'ref'   => home_url( '/product/x/' ),
+				'ptype' => 'cart',
+				'pid'   => 0,
+				'sw'    => 1440,
+			)
+		);
+
+		dn_bfs_assert_same( 200, $response->get_status() );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'sessions' ) );
+	}
+);
+
+dn_bfs_it(
+	'existing tracker session does not reset the meta cookie',
+	function () {
+		list( $a ) = dn_bfs_it_products( 1 );
+
+		$_COOKIE['dnbfs_vid'] = dn_bfs_it_uid( 'visitor-1' );
+		$_COOKIE['dnbfs_sid'] = dn_bfs_it_uid( 'session-1' );
+
+		dn_bfs_track_add_to_cart( $a, 1, 10.0, $a );
+
+		dn_bfs_assert_true( ! isset( $_COOKIE['dnbfs_sm'] ), 'meta cookie untouched' );
+	}
+);
+
+dn_bfs_it(
 	'bot add to cart is ignored and counted as blocked',
 	function () {
 		list( $a ) = dn_bfs_it_products( 1 );
@@ -70,6 +125,7 @@ dn_bfs_it(
 		$_COOKIE['dnbfs_vid']    = dn_bfs_it_uid( 'visitor-1' );
 		$_COOKIE['dnbfs_sid']    = dn_bfs_it_uid( 'session-1' );
 		$_SERVER['HTTP_REFERER'] = home_url( '/?utm_campaign=sale-10&utm_source=facebook&utm_medium=cpc' );
+		$_GET['wc-ajax']         = 'checkout';
 
 		dn_bfs_store_ensure_session( dn_bfs_wc_session_hit(), dn_bfs_request_context( time(), DN_BFS_IT_UA ) );
 
@@ -169,6 +225,82 @@ dn_bfs_it(
 
 		dn_bfs_track_order( $order );
 		dn_bfs_assert_same( 0, dn_bfs_it_count( 'events', "type = 'order'" ) );
+	}
+);
+
+dn_bfs_it(
+	'order from a non-browser user agent is still recorded',
+	function () {
+		list( $a ) = dn_bfs_it_products( 1 );
+		$_SERVER['HTTP_USER_AGENT'] = 'okhttp/4.12';
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $a ), 1 );
+		$order->calculate_totals();
+		$order->save();
+
+		$result = dn_bfs_track_order( $order );
+
+		dn_bfs_assert_true( $result['ok'], 'ok' );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'order' AND order_id = " . $order->get_id() ) );
+	}
+);
+
+dn_bfs_it(
+	'order from an empty user agent is still recorded when empty ua blocking is on',
+	function () {
+		list( $a ) = dn_bfs_it_products( 1 );
+		dn_bfs_it_settings( array( 'block_empty_ua' => 1 ) );
+		$_SERVER['HTTP_USER_AGENT'] = '';
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $a ), 1 );
+		$order->calculate_totals();
+		$order->save();
+
+		dn_bfs_track_order( $order );
+
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'order' AND order_id = " . $order->get_id() ) );
+	}
+);
+
+dn_bfs_it(
+	'classic and store api checkout hooks record one order event',
+	function () {
+		list( $a ) = dn_bfs_it_products( 1 );
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $a ), 1 );
+		$order->calculate_totals();
+		$order->save();
+
+		do_action( 'woocommerce_checkout_order_processed', $order->get_id(), array(), $order );
+		do_action( 'woocommerce_store_api_checkout_order_processed', $order );
+
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'order'" ) );
+	}
+);
+
+dn_bfs_it(
+	'order meta is written when the order event already exists',
+	function () {
+		list( $a ) = dn_bfs_it_products( 1 );
+
+		$_COOKIE['dnbfs_vid'] = dn_bfs_it_uid( 'visitor-1' );
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $a ), 1 );
+		$order->calculate_totals();
+		$order->save();
+
+		// Simulate an order event already stored by an earlier request without meta.
+		dn_bfs_store_insert_event( dn_bfs_wc_order_fallback_session( $order, '' ), 'order', array( 'order_id' => $order->get_id() ), time() );
+
+		$result = dn_bfs_track_order( $order );
+
+		dn_bfs_assert_same( 'duplicate', $result['reason'] );
+		dn_bfs_assert_same( 1, dn_bfs_it_count( 'events', "type = 'order'" ) );
+		dn_bfs_assert_same( dn_bfs_it_uid( 'visitor-1' ), wc_get_order( $order->get_id() )->get_meta( '_dnbfs_visitor_uid' ), 'meta written for existing event' );
 	}
 );
 
