@@ -327,3 +327,125 @@ function dn_bfs_report_funnel( $range, $filters = array(), $now = null ) {
 
 	return $steps;
 }
+
+function dn_bfs_report_row_label( $dimension, $value ) {
+	if ( 'product' === $dimension ) {
+		$title = get_the_title( (int) $value );
+
+		return '' !== $title ? $title : '#' . (int) $value;
+	}
+
+	return (string) $value;
+}
+
+function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $orderby = '', $order = 'desc', $limit = 25, $offset = 0, $now = null ) {
+	$now = null === $now ? dn_bfs_now() : (int) $now;
+
+	if ( ! in_array( $dimension, dn_bfs_report_dimensions(), true ) ) {
+		return new WP_Error( 'invalid_dimension', __( 'Unknown report dimension.', 'dn-burst-funnel-stats' ), array( 'status' => 422 ) );
+	}
+
+	$filters   = dn_bfs_sanitize_filters( $filters );
+	$period    = dn_bfs_report_period( $range['current_start'], $range['current_end'], $now );
+	$rows      = array();
+	$estimated = false;
+
+	if ( ! empty( $filters ) ) {
+		if ( $period['start_date'] < dn_bfs_raw_cutoff_date( $now ) ) {
+			return dn_bfs_report_error_out_of_retention();
+		}
+
+		$rows = dn_bfs_report_raw_rows( $period['start_ts'], $period['end_ts'], $dimension, $filters );
+	} else {
+		if ( $period['has_daily'] ) {
+			$rows = dn_bfs_daily_breakdown( $period['start_date'], $period['daily_end'], $dimension );
+		}
+
+		if ( $period['has_live'] ) {
+			foreach ( dn_bfs_report_raw_rows( $period['live_start_ts'], $now + 1, $dimension, array() ) as $key => $metrics ) {
+				$key          = (string) $key;
+				$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
+			}
+		}
+
+		// Per-row visitors are summed across days, so multi-day breakdowns are estimates.
+		$estimated = $period['incomplete'] || $period['start_date'] !== $period['end_date'];
+	}
+
+	$list = array();
+
+	foreach ( $rows as $value => $metrics ) {
+		$list[] = array_merge(
+			array(
+				'dim_value' => (string) $value,
+				'label'     => dn_bfs_report_row_label( $dimension, $value ),
+			),
+			dn_bfs_derive_metrics( $metrics )
+		);
+	}
+
+	$allowed = array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() );
+	$orderby = in_array( $orderby, $allowed, true ) ? $orderby : ( 'product' === $dimension ? 'product_views' : 'pageviews' );
+	$list    = dn_bfs_sort_report_rows( $list, $orderby, $order );
+	$limit   = max( 1, min( 500, (int) $limit ) );
+
+	return array(
+		'rows'      => array_slice( $list, max( 0, (int) $offset ), $limit ),
+		'total'     => count( $list ),
+		'estimated' => $estimated,
+	);
+}
+
+function dn_bfs_report_realtime( $now = null ) {
+	global $wpdb;
+
+	$now       = null === $now ? dn_bfs_now() : (int) $now;
+	$since     = $now - 5 * MINUTE_IN_SECONDS;
+	$sessions  = dn_bfs_table( 'sessions' );
+	$pageviews = dn_bfs_table( 'pageviews' );
+
+	$online = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$sessions} WHERE last_activity >= %d AND is_spam = 0", $since ) );
+
+	$pages = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT p.path AS path, COUNT(*) AS visitors
+			FROM {$pageviews} p
+			INNER JOIN (
+				SELECT session_id, MAX(id) AS last_id FROM {$pageviews} WHERE time >= %d GROUP BY session_id
+			) latest ON latest.last_id = p.id
+			INNER JOIN {$sessions} s ON s.id = p.session_id
+			WHERE s.last_activity >= %d AND s.is_spam = 0
+			GROUP BY p.path ORDER BY visitors DESC, p.path ASC LIMIT 10",
+			$now - 30 * MINUTE_IN_SECONDS,
+			$since
+		),
+		ARRAY_A
+	);
+
+	$channels = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT channel, COUNT(*) AS visitors FROM {$sessions} WHERE last_activity >= %d AND is_spam = 0 GROUP BY channel ORDER BY visitors DESC, channel ASC LIMIT 10",
+			$since
+		),
+		ARRAY_A
+	);
+
+	$cast = function ( $rows, $key ) {
+		$out = array();
+
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				$key       => (string) $row[ $key ],
+				'visitors' => (int) $row['visitors'],
+			);
+		}
+
+		return $out;
+	};
+
+	return array(
+		'online'   => $online,
+		'pages'    => $cast( $pages, 'path' ),
+		'channels' => $cast( $channels, 'channel' ),
+	);
+}

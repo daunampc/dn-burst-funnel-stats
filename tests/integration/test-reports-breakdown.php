@@ -1,0 +1,92 @@
+<?php
+
+require_once __DIR__ . '/seed.php';
+
+add_filter( 'dn_bfs_report_cache_ttl', '__return_zero' );
+
+function dn_bfs_it_breakdown_range( $days_back ) {
+	$today         = wp_date( 'Y-m-d', time() );
+	list( $start ) = dn_bfs_day_bounds( dn_bfs_date_shift( $today, -1 * $days_back ) );
+	list( , $end ) = dn_bfs_day_bounds( $today );
+
+	return array(
+		'current_start'  => $start,
+		'current_end'    => $end - 1,
+		'previous_start' => $start,
+		'previous_end'   => $start,
+		'compare'        => 'none',
+	);
+}
+
+function dn_bfs_it_seed_breakdown() {
+	delete_option( 'dnbfs_last_aggregated_date' );
+	global $wpdb;
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'dnbfs_dirty_' ) . '%' ) );
+
+	$yesterday = dn_bfs_it_day_noon( 1 );
+
+	foreach ( array( 'sale-10', 'sale-10', 'spring' ) as $i => $campaign ) {
+		$s = dn_bfs_it_seed_session( array( 'started_at' => $yesterday + $i, 'utm_campaign' => $campaign, 'device' => 0 === $i ? 'mobile' : 'desktop' ) );
+		dn_bfs_it_seed_pageview( $s, '/', $yesterday + $i );
+		dn_bfs_it_seed_event( $s, 'product_view', $yesterday + $i, array( 'product_id' => 101 + $i ) );
+	}
+
+	$today = dn_bfs_it_seed_session( array( 'started_at' => time() - 30, 'utm_campaign' => 'spring' ) );
+	dn_bfs_it_seed_pageview( $today, '/sale/', time() - 30 );
+
+	dn_bfs_aggregate_run( time() );
+}
+
+dn_bfs_it(
+	'breakdown merges daily rows with today and sorts',
+	function () {
+		dn_bfs_it_seed_breakdown();
+
+		$result = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'campaign', array(), 'sessions', 'desc' );
+
+		dn_bfs_assert_same( 2, $result['total'] );
+		dn_bfs_assert_same( array( 'sale-10', 'spring' ), array_column( $result['rows'], 'dim_value' ) );
+		dn_bfs_assert_same( 2, $result['rows'][0]['sessions'] );
+		dn_bfs_assert_same( 2, $result['rows'][1]['sessions'] );
+		dn_bfs_assert_same( true, $result['estimated'] );
+	}
+);
+
+dn_bfs_it(
+	'breakdown with a filter uses raw data, paginates and labels products',
+	function () {
+		dn_bfs_it_seed_breakdown();
+
+		$filtered = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'device', array( 'campaign' => 'sale-10' ) );
+		dn_bfs_assert_same( array( 'desktop', 'mobile' ), array_column( dn_bfs_sort_report_rows( $filtered['rows'], 'sessions', 'asc' ), 'dim_value' ) );
+		dn_bfs_assert_same( false, $filtered['estimated'] );
+
+		$page = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'product', array(), 'product_views', 'desc', 1, 1 );
+		dn_bfs_assert_same( 3, $page['total'] );
+		dn_bfs_assert_same( 1, count( $page['rows'] ) );
+		dn_bfs_assert_true( '' !== $page['rows'][0]['label'], 'product label' );
+
+		$error = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'nope' );
+		dn_bfs_assert_same( 'invalid_dimension', $error->get_error_code() );
+	}
+);
+
+dn_bfs_it(
+	'realtime counts active sessions and their current pages',
+	function () {
+		$now    = time();
+		$active = dn_bfs_it_seed_session( array( 'started_at' => $now - 600, 'last_activity' => $now - 30, 'channel' => 'paid' ) );
+		dn_bfs_it_seed_pageview( $active, '/', $now - 600 );
+		dn_bfs_it_seed_pageview( $active, '/cart/', $now - 40 );
+		$other = dn_bfs_it_seed_session( array( 'started_at' => $now - 100, 'last_activity' => $now - 100 ) );
+		dn_bfs_it_seed_pageview( $other, '/cart/', $now - 100 );
+		dn_bfs_it_seed_session( array( 'started_at' => $now - 3600, 'last_activity' => $now - 1000 ) );
+		dn_bfs_it_seed_session( array( 'started_at' => $now - 50, 'last_activity' => $now - 50, 'is_spam' => 1 ) );
+
+		$realtime = dn_bfs_report_realtime( $now );
+
+		dn_bfs_assert_same( 2, $realtime['online'] );
+		dn_bfs_assert_same( array( array( 'path' => '/cart/', 'visitors' => 2 ) ), $realtime['pages'] );
+		dn_bfs_assert_same( 2, array_sum( array_column( $realtime['channels'], 'visitors' ) ) );
+	}
+);
