@@ -58,6 +58,14 @@ services:
       - ../:/app
     entrypoint: ["sh", "-c", "composer install --no-interaction --no-progress --quiet && vendor/bin/phpunit \"$@\"", "--"]
 
+  php74:
+    image: php:7.4-cli
+    profiles: ["tools"]
+    working_dir: /app
+    volumes:
+      - ../:/app
+    entrypoint: ["sh", "/app/docker/lint-php74.sh"]
+
 volumes:
   db_data:
   wp_data:

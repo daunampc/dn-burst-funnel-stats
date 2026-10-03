@@ -205,3 +205,20 @@ dn_bfs_it(
 		dn_bfs_assert_same( 0, dn_bfs_it_count( 'events', "type = 'product_view'" ) );
 	}
 );
+
+dn_bfs_it(
+	'product view dedupe by ip_hash still works for a session that started before the window',
+	function () {
+		global $wpdb;
+
+		$now     = time();
+		$session = dn_bfs_it_session( $now - 1000, 'early' );
+		$wpdb->update( dn_bfs_table( 'sessions' ), array( 'started_at' => $now - 4000 ), array( 'id' => $session['id'] ) );
+
+		dn_bfs_store_record_product_view( $session, 101, dn_bfs_request_context( $now - 100, DN_BFS_IT_UA ) );
+		$other  = dn_bfs_it_session( $now, 'late' );
+		$result = dn_bfs_store_record_product_view( $other, 101, dn_bfs_request_context( $now, DN_BFS_IT_UA ) );
+
+		dn_bfs_assert_same( 'duplicate', $result['reason'] );
+	}
+);

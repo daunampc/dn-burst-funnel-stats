@@ -142,6 +142,10 @@ function dn_bfs_install_schema() {
   checkouts int(10) unsigned NOT NULL DEFAULT 0,
   orders int(10) unsigned NOT NULL DEFAULT 0,
   revenue decimal(19,4) NOT NULL DEFAULT 0,
+  items int(10) unsigned NOT NULL DEFAULT 0,
+  tips decimal(19,4) NOT NULL DEFAULT 0,
+  paid decimal(19,4) NOT NULL DEFAULT 0,
+  balance decimal(19,4) NOT NULL DEFAULT 0,
   PRIMARY KEY  (date,dimension,dim_hash),
   KEY dimension_date (dimension,date)
 ) {$charset};";

@@ -308,25 +308,36 @@ function dn_bfs_store_order_event_exists( $order_id ) {
 function dn_bfs_store_find_recent_event( $type, $visitor_uid, $ip_hash, $product_id, $since ) {
 	global $wpdb;
 
-	$events   = dn_bfs_table( 'events' );
-	$sessions = dn_bfs_table( 'sessions' );
+	$events = dn_bfs_table( 'events' );
 
+	// Two indexed lookups instead of one OR across a join: visitor first, then same browser+IP.
 	$row = $wpdb->get_row(
 		$wpdb->prepare(
-			"SELECT e.* FROM {$events} e
-			LEFT JOIN {$sessions} s ON s.id = e.session_id
-			WHERE e.type = %s AND e.product_id = %d AND e.time >= %d
-				AND (e.visitor_uid = %s OR (%s <> '' AND s.ip_hash = %s))
-			ORDER BY e.time DESC LIMIT 1",
-			$type,
-			(int) $product_id,
-			(int) $since,
+			"SELECT * FROM {$events} WHERE visitor_uid = %s AND product_id = %d AND type = %s AND time >= %d ORDER BY time DESC LIMIT 1",
 			$visitor_uid,
-			$ip_hash,
-			$ip_hash
+			(int) $product_id,
+			$type,
+			(int) $since
 		),
 		ARRAY_A
 	);
+
+	if ( ! $row && '' !== (string) $ip_hash ) {
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT e.* FROM ' . dn_bfs_table( 'sessions' ) . " s
+				INNER JOIN {$events} e ON e.session_id = s.id
+				WHERE s.ip_hash = %s AND s.started_at >= %d AND e.product_id = %d AND e.type = %s AND e.time >= %d
+				ORDER BY e.time DESC LIMIT 1",
+				$ip_hash,
+				(int) $since - DAY_IN_SECONDS,
+				(int) $product_id,
+				$type,
+				(int) $since
+			),
+			ARRAY_A
+		);
+	}
 
 	return is_array( $row ) ? $row : null;
 }

@@ -87,7 +87,7 @@ Index thêm: (`visitor_uid`, `product_id`, `type`, `time`) cho quy tắc 5 phút
 Sự kiện `order` **không bao giờ bị xóa** bởi cleanup.
 
 ### `dnbfs_daily`
-PK (`date`, `dimension`, `dim_hash`). Cột: `date` DATE, `dimension` VARCHAR(16), `dim_value` VARCHAR(255), `dim_hash` CHAR(32) = md5(dim_value), `pageviews`, `visitors`, `sessions`, `new_visitors`, `bounces`, `duration_sum`, `product_views`, `atc`, `carts`, `checkouts`, `orders` (INT UNSIGNED), `revenue` DECIMAL(19,4).
+PK (`date`, `dimension`, `dim_hash`). Cột: `date` DATE, `dimension` VARCHAR(16), `dim_value` VARCHAR(255), `dim_hash` CHAR(32) = md5(dim_value), `pageviews`, `visitors`, `sessions`, `new_visitors`, `bounces`, `duration_sum`, `product_views`, `atc`, `carts`, `checkouts`, `orders`, `items` (INT UNSIGNED), `revenue`, `tips`, `paid`, `balance` (DECIMAL(19,4)).
 
 Dimension: `total`, `page`, `entry`, `exit`, `product`, `channel`, `source`, `medium`, `campaign`, `referrer`, `device`, `browser`, `os`, `country`, `city`, `blocked` (dim_value = lý do chặn, dùng cột `pageviews` làm bộ đếm).
 
@@ -105,7 +105,7 @@ Dimension: `total`, `page`, `entry`, `exit`, `product`, `channel`, `source`, `me
   - Cookie không đặt `domain`, không `HttpOnly` (JS cần đọc); server dùng cùng định dạng.
 - Không gửi gì khi `navigator.webdriver === true` hoặc khi `document.visibilityState === 'prerender'`/trang chưa từng hiển thị (chờ `visibilitychange` sang `visible`).
 - Hit `pv` (khi trang hiển thị lần đầu): `{t:'pv', vid, sid, path, query, ref, ptype, pid, sw}`. Tracker gửi toàn bộ query string (tối đa 1024 ký tự sau khi server cắt); server chỉ lưu các trường suy ra từ UTM (`utm_*`, kênh), không lưu query thô.
-- Hit `ping`: mỗi 30 giây khi tab đang hiển thị và khi `visibilitychange→hidden`; `pagehide` chỉ gửi ping nếu trang vẫn đang hiển thị (tránh gửi hai lần). Mang `{t:'ping', vid, sid, pvid, engaged}`; `engaged` = giây thực sự hiển thị, tối đa 1800. `pvid` là id pageview trả về từ hit `pv` (khi `sendBeacon` không đọc được phản hồi thì hit `pv` dùng `fetch(..., {keepalive:true})`).
+- Hit `ping`: mỗi 60 giây khi tab đang hiển thị và khi `visibilitychange→hidden`; `pagehide` chỉ gửi ping nếu trang vẫn đang hiển thị (tránh gửi hai lần). Mang `{t:'ping', vid, sid, pvid, engaged}`; `engaged` = giây thực sự hiển thị, tối đa 1800. `pvid` là id pageview trả về từ hit `pv` (khi `sendBeacon` không đọc được phản hồi thì hit `pv` dùng `fetch(..., {keepalive:true})`).
 - Gửi bằng `navigator.sendBeacon`/`fetch keepalive`, body `text/plain` chứa JSON (tránh preflight).
 
 ### 4.2 Endpoint `/collect`
@@ -298,7 +298,11 @@ includes/
   tracking/wc-events.php
   tracking/aggregator.php
   tracking/cleanup.php
+  tracking/geoip-update.php
   reports.php
+  reports/metrics.php
+  reports/wc-settings.php
+  reports/raw.php
   settings.php            (schema + sanitize cho 8 nhóm, không còn render HTML)
   api/auth.php
   api/routes.php          (REST công khai)

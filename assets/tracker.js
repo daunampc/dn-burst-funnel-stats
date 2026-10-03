@@ -169,7 +169,7 @@
 			if (document.visibilityState === 'visible') {
 				ping();
 			}
-		}, 30000);
+		}, 60000);
 	}
 
 	function onVisibilityChange() {
