@@ -9,6 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+function dn_bfs_truncate( $value, $length ) {
+	return function_exists( 'mb_substr' ) ? mb_substr( (string) $value, 0, $length, 'UTF-8' ) : substr( (string) $value, 0, $length );
+}
+
 function dn_bfs_normalize_host( $host ) {
 	$host = strtolower( trim( (string) $host ) );
 
@@ -35,14 +39,14 @@ function dn_bfs_extract_utm( $query ) {
 
 	foreach ( array( 'source', 'medium', 'campaign', 'content', 'term' ) as $key ) {
 		$value = isset( $params[ 'utm_' . $key ] ) && is_scalar( $params[ 'utm_' . $key ] ) ? (string) $params[ 'utm_' . $key ] : '';
-		$value = substr( sanitize_text_field( $value ), 0, 191 );
+		$value = dn_bfs_truncate( sanitize_text_field( $value ), 191 );
 
 		$utm[ $key ] = in_array( $key, array( 'source', 'medium' ), true ) ? strtolower( $value ) : $value;
 	}
 
 	$utm['paid_click'] = false;
 
-	foreach ( array( 'gclid', 'gbraid', 'wbraid', 'msclkid', 'ttclid', 'fbclid' ) as $click_id ) {
+	foreach ( array( 'gclid', 'gbraid', 'wbraid', 'msclkid', 'ttclid' ) as $click_id ) {
 		if ( ! empty( $params[ $click_id ] ) ) {
 			$utm['paid_click'] = true;
 		}

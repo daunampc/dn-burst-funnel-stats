@@ -11,7 +11,7 @@ class ChannelTest extends TestCase {
 	}
 
 	public function test_extract_utm() {
-		$utm = dn_bfs_extract_utm( '?utm_source=Facebook&utm_medium=CPC&utm_campaign=Sale-10&utm_content=v1&utm_term=ao%20thun&fbclid=abc' );
+		$utm = dn_bfs_extract_utm( '?utm_source=Facebook&utm_medium=CPC&utm_campaign=Sale-10&utm_content=v1&utm_term=ao%20thun&gclid=abc' );
 
 		$this->assertSame( 'facebook', $utm['source'] );
 		$this->assertSame( 'cpc', $utm['medium'] );
@@ -23,6 +23,13 @@ class ChannelTest extends TestCase {
 		$empty = dn_bfs_extract_utm( '' );
 		$this->assertSame( '', $empty['campaign'] );
 		$this->assertFalse( $empty['paid_click'] );
+	}
+
+	public function test_utm_truncation_keeps_valid_utf8() {
+		$utm = dn_bfs_extract_utm( 'utm_campaign=' . rawurlencode( str_repeat( 'ă', 200 ) ) );
+
+		$this->assertSame( 191, mb_strlen( $utm['campaign'], 'UTF-8' ) );
+		$this->assertTrue( mb_check_encoding( $utm['campaign'], 'UTF-8' ) );
 	}
 
 	/**
@@ -39,6 +46,7 @@ class ChannelTest extends TestCase {
 			'google organic'    => array( '', 'google.com.vn', 'organic_search' ),
 			'coccoc organic'    => array( '', 'coccoc.com', 'organic_search' ),
 			'facebook organic'  => array( '', 'l.facebook.com', 'social' ),
+			'fbclid organic'    => array( '?fbclid=abc', 'l.facebook.com', 'social' ),
 			'tiktok organic'    => array( '', 'tiktok.com', 'social' ),
 			'referral'          => array( '', 'blog.other.vn', 'referral' ),
 			'utm cpc'           => array( '?utm_source=google&utm_medium=cpc', 'google.com', 'paid' ),
