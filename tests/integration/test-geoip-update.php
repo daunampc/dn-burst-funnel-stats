@@ -29,6 +29,8 @@ function dn_bfs_it_mock_geoip_http( $checksum_override = null ) {
 			return $pre;
 		}
 
+		$GLOBALS['dn_bfs_it_geo_requests'] = ( isset( $GLOBALS['dn_bfs_it_geo_requests'] ) ? $GLOBALS['dn_bfs_it_geo_requests'] : 0 ) + 1;
+
 		$response = array(
 			'headers'  => array(),
 			'body'     => '',
@@ -60,6 +62,8 @@ function dn_bfs_it_unmock_geoip_http() {
 
 	delete_option( 'dnbfs_geoip_updated_at' );
 	delete_option( 'dnbfs_geoip_last_error' );
+	delete_option( 'dnbfs_geoip_attempted_at' );
+	$GLOBALS['dn_bfs_it_geo_requests'] = 0;
 }
 
 dn_bfs_it(
@@ -111,6 +115,50 @@ dn_bfs_it(
 		update_option( 'dnbfs_geoip_updated_at', time() - 31 * DAY_IN_SECONDS, false );
 		dn_bfs_maybe_update_geoip( time() );
 		dn_bfs_assert_true( file_exists( dn_bfs_geo_db_path() ), 'updated after 30 days' );
+
+		dn_bfs_it_unmock_geoip_http();
+	}
+);
+
+dn_bfs_it(
+	'geoip update removes stale orphan downloads but keeps fresh ones',
+	function () {
+		dn_bfs_it_mock_geoip_http();
+
+		$dir = dirname( dn_bfs_geo_db_path() );
+		wp_mkdir_p( $dir );
+		$old   = $dir . '/download-oldorphan.tar.gz';
+		$fresh = $dir . '/download-freshorphan.tar.gz';
+		file_put_contents( $old, 'x' );
+		file_put_contents( $fresh, 'x' );
+		touch( $old, time() - 2 * HOUR_IN_SECONDS );
+		touch( $fresh, time() );
+
+		dn_bfs_geoip_update( 'TESTKEY123' );
+
+		dn_bfs_assert_true( ! file_exists( $old ), 'old orphan removed' );
+		dn_bfs_assert_true( file_exists( $fresh ), 'fresh orphan kept' );
+
+		unlink( $fresh );
+		dn_bfs_it_unmock_geoip_http();
+	}
+);
+
+dn_bfs_it(
+	'geoip auto update does not retry within 24 hours of a failed attempt',
+	function () {
+		dn_bfs_it_mock_geoip_http( str_repeat( 'a', 64 ) );
+		$GLOBALS['dn_bfs_it_geo_requests'] = 0;
+
+		dn_bfs_it_settings( array( 'maxmind_license_key' => 'TESTKEY123' ) );
+
+		dn_bfs_maybe_update_geoip( time() );
+		$first = $GLOBALS['dn_bfs_it_geo_requests'];
+		dn_bfs_assert_true( $first > 0, 'first call attempts' );
+		dn_bfs_assert_same( 'checksum_mismatch', get_option( 'dnbfs_geoip_last_error' ) );
+
+		dn_bfs_maybe_update_geoip( time() );
+		dn_bfs_assert_same( $first, $GLOBALS['dn_bfs_it_geo_requests'] );
 
 		dn_bfs_it_unmock_geoip_http();
 	}

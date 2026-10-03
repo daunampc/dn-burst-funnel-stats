@@ -48,6 +48,19 @@ function dn_bfs_geoip_update( $license_key ) {
 	$dir    = dirname( $target );
 	wp_mkdir_p( $dir );
 
+	if ( ! wp_is_writable( $dir ) ) {
+		return dn_bfs_geoip_fail( 'write_failed' );
+	}
+
+	update_option( 'dnbfs_geoip_attempted_at', time(), false );
+
+	// Reclaim orphaned downloads and temp files left by interrupted runs.
+	foreach ( array_merge( (array) glob( $dir . '/download-*' ), (array) glob( $dir . '/*.tmp' ) ) as $orphan ) {
+		if ( is_file( $orphan ) && filemtime( $orphan ) < time() - HOUR_IN_SECONDS ) {
+			unlink( $orphan );
+		}
+	}
+
 	$archive  = $dir . '/download-' . wp_generate_password( 8, false ) . '.tar.gz';
 	$response = wp_safe_remote_get(
 		dn_bfs_geoip_download_url( $license_key, 'tar.gz' ),
@@ -63,7 +76,12 @@ function dn_bfs_geoip_update( $license_key ) {
 	}
 
 	$checksum = wp_safe_remote_get( dn_bfs_geoip_download_url( $license_key, 'tar.gz.sha256' ), array( 'timeout' => 30 ) );
-	$expected = is_wp_error( $checksum ) ? '' : strtolower( (string) strtok( trim( wp_remote_retrieve_body( $checksum ) ), " \t" ) );
+
+	if ( is_wp_error( $checksum ) || 200 !== (int) wp_remote_retrieve_response_code( $checksum ) ) {
+		return dn_bfs_geoip_fail( 'download_failed', array( $archive ) );
+	}
+
+	$expected = strtolower( (string) strtok( trim( wp_remote_retrieve_body( $checksum ) ), " \t" ) );
 
 	if ( ! preg_match( '/^[a-f0-9]{64}$/', $expected ) || ! hash_equals( $expected, hash_file( 'sha256', $archive ) ) ) {
 		return dn_bfs_geoip_fail( 'checksum_mismatch', array( $archive ) );
@@ -80,7 +98,9 @@ function dn_bfs_geoip_update( $license_key ) {
 				break;
 			}
 		}
-	} catch ( Exception $e ) {
+		unset( $phar );
+	} catch ( \Throwable $e ) {
+		unset( $phar );
 		return dn_bfs_geoip_fail( 'extract_failed', array( $archive ) );
 	}
 
@@ -88,7 +108,7 @@ function dn_bfs_geoip_update( $license_key ) {
 		return dn_bfs_geoip_fail( 'mmdb_missing', array( $archive ) );
 	}
 
-	$temp = $target . '.tmp';
+	$temp = $target . '.' . wp_generate_password( 8, false ) . '.tmp';
 
 	if ( ! copy( $found, $temp ) ) {
 		return dn_bfs_geoip_fail( 'write_failed', array( $archive, $temp ) );
@@ -124,6 +144,10 @@ function dn_bfs_maybe_update_geoip( $now ) {
 	}
 
 	if ( (int) $now - (int) get_option( 'dnbfs_geoip_updated_at', 0 ) < 30 * DAY_IN_SECONDS ) {
+		return;
+	}
+
+	if ( (int) $now - (int) get_option( 'dnbfs_geoip_attempted_at', 0 ) < DAY_IN_SECONDS ) {
 		return;
 	}
 
