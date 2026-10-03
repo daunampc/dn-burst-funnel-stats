@@ -119,6 +119,10 @@ function dn_bfs_enqueue_tracker() {
 		return;
 	}
 
+	if ( is_user_logged_in() && array_intersect( (array) wp_get_current_user()->roles, (array) $settings['excluded_roles'] ) ) {
+		return;
+	}
+
 	$path = DN_BURST_FUNNEL_STATS_PATH . 'assets/tracker.js';
 
 	wp_enqueue_script(

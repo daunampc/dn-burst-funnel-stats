@@ -94,3 +94,23 @@ dn_bfs_it(
 		dn_bfs_assert_same( 365, $context['cookieDays'] );
 	}
 );
+
+dn_bfs_it(
+	'tracker script is not enqueued for excluded roles',
+	function () {
+		$admin_id = (int) get_users( array( 'role' => 'administrator', 'number' => 1, 'fields' => 'ID' ) )[0];
+
+		try {
+			wp_dequeue_script( 'dnbfs-tracker' );
+			dn_bfs_enqueue_tracker();
+			dn_bfs_assert_true( wp_script_is( 'dnbfs-tracker', 'enqueued' ), 'enqueued for guests' );
+
+			wp_dequeue_script( 'dnbfs-tracker' );
+			wp_set_current_user( $admin_id );
+			dn_bfs_enqueue_tracker();
+			dn_bfs_assert_true( ! wp_script_is( 'dnbfs-tracker', 'enqueued' ), 'not enqueued for administrators' );
+		} finally {
+			wp_dequeue_script( 'dnbfs-tracker' );
+		}
+	}
+);
