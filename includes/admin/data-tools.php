@@ -63,9 +63,21 @@ function dn_bfs_reaggregate_range( $start, $end ) {
 		}
 	}
 
+	$result    = dn_bfs_aggregate_run();
+	$dirty     = dn_bfs_get_dirty_dates();
+	$remaining = 0;
+
+	foreach ( $dates as $date ) {
+		// A date rebuilt in this run counts as done even if it stays marked dirty.
+		if ( $date <= $closable && in_array( $date, $dirty, true ) && ! in_array( $date, (array) $result['processed'], true ) ) {
+			$remaining++;
+		}
+	}
+
 	return array(
-		'queued' => $queued,
-		'result' => dn_bfs_aggregate_run(),
+		'queued'    => $queued,
+		'remaining' => $remaining,
+		'result'    => $result,
 	);
 }
 
@@ -84,7 +96,7 @@ function dn_bfs_purge_all_data( $confirm ) {
 		delete_option( 'dnbfs_dirty_' . $date );
 	}
 
-	foreach ( array( 'dnbfs_last_aggregated_date', 'dnbfs_aggregate_last_error', 'dnbfs_aggregate_lock' ) as $option ) {
+	foreach ( array( 'dnbfs_last_aggregated_date', 'dnbfs_aggregate_last_error' ) as $option ) {
 		delete_option( $option );
 	}
 

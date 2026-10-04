@@ -139,12 +139,41 @@ function dn_bfs_settings_save_from_post( $group, $post ) {
 	return is_wp_error( $result ) ? $result->get_error_code() : 'saved';
 }
 
+function dn_bfs_reaggregate_outcome( $result ) {
+	$run = $result['result'];
+
+	if ( empty( $run['ok'] ) ) {
+		return array( 'tab' => 'data', 'notice' => isset( $run['reason'] ) && 'locked' === $run['reason'] ? 'reagg_locked' : 'reagg_failed' );
+	}
+
+	if ( 0 === (int) $result['queued'] ) {
+		return array( 'tab' => 'data', 'notice' => 'reagg_none' );
+	}
+
+	if ( (int) $result['remaining'] > 0 ) {
+		return array(
+			'tab'    => 'data',
+			'notice' => 'reagg_partial',
+			'args'   => array(
+				'dn_done' => (int) $result['queued'] - (int) $result['remaining'],
+				'dn_left' => (int) $result['remaining'],
+			),
+		);
+	}
+
+	return array( 'tab' => 'data', 'notice' => 'reaggregated' );
+}
+
 function dn_bfs_settings_data_task( $task, $post, $files ) {
 	switch ( $task ) {
 		case 'reaggregate':
 			$result = dn_bfs_reaggregate_range( isset( $post['start'] ) ? (string) $post['start'] : '', isset( $post['end'] ) ? (string) $post['end'] : '' );
 
-			return array( 'tab' => 'data', 'notice' => is_wp_error( $result ) ? $result->get_error_code() : 'reaggregated' );
+			if ( is_wp_error( $result ) ) {
+				return array( 'tab' => 'data', 'notice' => $result->get_error_code() );
+			}
+
+			return dn_bfs_reaggregate_outcome( $result );
 		case 'purge':
 			$result = dn_bfs_purge_all_data( isset( $post['confirm'] ) ? (string) $post['confirm'] : '' );
 
@@ -170,7 +199,7 @@ function dn_bfs_settings_data_task( $task, $post, $files ) {
 	return array( 'tab' => 'data', 'notice' => 'invalid_task' );
 }
 
-function dn_bfs_settings_notice( $code ) {
+function dn_bfs_settings_notice( $code, $args = array() ) {
 	$messages = array(
 		'saved'            => array( 'success', __( 'Settings saved.', 'dn-burst-funnel-stats' ) ),
 		'reaggregated'     => array( 'success', __( 'The selected days were re-aggregated.', 'dn-burst-funnel-stats' ) ),
@@ -182,6 +211,8 @@ function dn_bfs_settings_notice( $code ) {
 		'missing_file'     => array( 'error', __( 'Choose a JSON file to import.', 'dn-burst-funnel-stats' ) ),
 		'no_license'       => array( 'error', __( 'Add a MaxMind license key first.', 'dn-burst-funnel-stats' ) ),
 		'invalid_date'     => array( 'error', __( 'Use valid start and end dates.', 'dn-burst-funnel-stats' ) ),
+		'reagg_locked'     => array( 'warning', __( 'Aggregation is already running. Try again shortly.', 'dn-burst-funnel-stats' ) ),
+		'reagg_none'       => array( 'info', __( 'Nothing to rebuild: the selected range is today or later.', 'dn-burst-funnel-stats' ) ),
 		'range_too_long'   => array( 'error', __( 'Re-aggregate at most 92 days at a time.', 'dn-burst-funnel-stats' ) ),
 	);
 
@@ -189,9 +220,36 @@ function dn_bfs_settings_notice( $code ) {
 		return $messages[ $code ];
 	}
 
+	if ( 'reagg_partial' === $code ) {
+		$done = isset( $args['done'] ) ? (int) $args['done'] : 0;
+		$left = isset( $args['left'] ) ? (int) $args['left'] : 0;
+
+		/* translators: 1: rebuilt days, 2: days still queued. */
+		return array( 'warning', sprintf( __( '%1$d days rebuilt, %2$d remaining queued for the background job.', 'dn-burst-funnel-stats' ), $done, $left ) );
+	}
+
+	if ( 'reagg_failed' === $code ) {
+		$error   = get_option( 'dnbfs_aggregate_last_error' );
+		$message = is_array( $error ) && ! empty( $error['message'] ) ? (string) $error['message'] : __( 'unknown error', 'dn-burst-funnel-stats' );
+
+		/* translators: %s: error message. */
+		return array( 'error', sprintf( __( 'Re-aggregation failed: %s', 'dn-burst-funnel-stats' ), $message ) );
+	}
+
 	if ( 0 === strpos( $code, 'geoip_' ) ) {
-		/* translators: %s: error code. */
-		return array( 'error', sprintf( __( 'The GeoIP update failed: %s.', 'dn-burst-funnel-stats' ), substr( $code, 6 ) ) );
+		$reasons = array(
+			'no_license'        => __( 'Add a MaxMind license key first.', 'dn-burst-funnel-stats' ),
+			'download_failed'   => __( 'The database could not be downloaded.', 'dn-burst-funnel-stats' ),
+			'checksum_mismatch' => __( 'The downloaded file failed its checksum check.', 'dn-burst-funnel-stats' ),
+			'extract_failed'    => __( 'The downloaded archive could not be extracted.', 'dn-burst-funnel-stats' ),
+			'mmdb_missing'      => __( 'The archive did not contain a database file.', 'dn-burst-funnel-stats' ),
+			'invalid_database'  => __( 'The downloaded database is not valid.', 'dn-burst-funnel-stats' ),
+			'write_failed'      => __( 'The database could not be saved to disk.', 'dn-burst-funnel-stats' ),
+		);
+		$reason  = substr( $code, 6 );
+
+		/* translators: %s: reason. */
+		return array( 'error', sprintf( __( 'The GeoIP update failed: %s', 'dn-burst-funnel-stats' ), isset( $reasons[ $reason ] ) ? $reasons[ $reason ] : __( 'unexpected error.', 'dn-burst-funnel-stats' ) ) );
 	}
 
 	return array( 'error', __( 'Something went wrong. Please try again.', 'dn-burst-funnel-stats' ) );
@@ -222,7 +280,7 @@ function dn_bfs_handle_data_task() {
 
 	$result = dn_bfs_settings_data_task( $task, wp_unslash( $_POST ), $_FILES );
 
-	wp_safe_redirect( dn_bfs_settings_url( $result['tab'], array( 'dn_notice' => $result['notice'] ) ) );
+	wp_safe_redirect( dn_bfs_settings_url( $result['tab'], array_merge( array( 'dn_notice' => $result['notice'] ), isset( $result['args'] ) ? $result['args'] : array() ) ) );
 	exit;
 }
 add_action( 'admin_post_dn_bfs_data_task', 'dn_bfs_handle_data_task' );
@@ -255,6 +313,34 @@ function dn_bfs_render_post_multiselect( $name, $posts, $selected_ids ) {
 		</select>
 	</div>
 	<?php
+}
+
+/**
+ * Posts for the multiselects: a capped list plus every currently selected ID,
+ * so a saved selection beyond the cap survives the next save.
+ */
+function dn_bfs_settings_selectable_posts( $post_type, $selected ) {
+	$selected = array_values( array_filter( array_map( 'absint', (array) $selected ) ) );
+	$statuses = array( 'publish', 'private', 'draft' );
+
+	if ( 'page' === $post_type ) {
+		$posts = get_pages( array( 'post_status' => $statuses, 'sort_column' => 'post_title' ) );
+		$type  = 'page';
+	} else {
+		$limit = max( 1, (int) apply_filters( 'dn_bfs_settings_posts_limit', 300 ) );
+		$posts = get_posts( array( 'post_type' => 'product', 'post_status' => $statuses, 'posts_per_page' => $limit, 'orderby' => 'title', 'order' => 'ASC' ) );
+		$type  = 'product';
+	}
+
+	$have = wp_list_pluck( $posts, 'ID' );
+	$more = array_diff( $selected, array_map( 'intval', $have ) );
+
+	if ( $more ) {
+		$extra = get_posts( array( 'post_type' => $type, 'post_status' => 'any', 'post__in' => $more, 'posts_per_page' => count( $more ), 'orderby' => 'title', 'order' => 'ASC' ) );
+		$posts = array_merge( $posts, $extra );
+	}
+
+	return $posts;
 }
 
 function dn_bfs_render_setting_field( $field, $value, $meta ) {
@@ -294,14 +380,13 @@ function dn_bfs_render_setting_field( $field, $value, $meta ) {
 			$options = 'statuses' === $field['type'] ? $meta['order_statuses'] : $meta['roles'];
 			echo '<fieldset class="dn-burst-checklist">';
 			foreach ( $options as $option => $label ) {
-				printf( '<label><input type="checkbox" name="%1$s[]" value="%2$s" %3$s /> %4$s</label>', esc_attr( $name ), esc_attr( $option ), checked( in_array( $option, (array) $value, true ), true, false ), esc_html( translate_user_role( $label ) ) );
+				$label = 'statuses' === $field['type'] ? $label : translate_user_role( $label );
+				printf( '<label><input type="checkbox" name="%1$s[]" value="%2$s" %3$s /> %4$s</label>', esc_attr( $name ), esc_attr( $option ), checked( in_array( $option, (array) $value, true ), true, false ), esc_html( $label ) );
 			}
 			echo '</fieldset>';
 			break;
 		case 'posts':
-			$posts = 'page' === $field['post_type']
-				? get_pages( array( 'post_status' => array( 'publish', 'private', 'draft' ), 'sort_column' => 'post_title' ) )
-				: get_posts( array( 'post_type' => 'product', 'post_status' => array( 'publish', 'private', 'draft' ), 'posts_per_page' => 300, 'orderby' => 'title', 'order' => 'ASC' ) );
+			$posts = dn_bfs_settings_selectable_posts( $field['post_type'], $value );
 			dn_bfs_render_post_multiselect( $name, $posts, $value );
 			break;
 	}
@@ -334,7 +419,13 @@ function dn_bfs_render_settings_form( $group ) {
 				<tbody>
 					<?php foreach ( $fields[ $group ] as $field ) : ?>
 						<tr>
-							<th scope="row"><label for="<?php echo esc_attr( 'dn_bfs_' . $field['key'] ); ?>"><?php echo esc_html( $field['label'] ); ?></label></th>
+							<th scope="row">
+								<?php if ( in_array( $field['type'], array( 'radio', 'checklist', 'statuses', 'posts' ), true ) ) : ?>
+									<?php echo esc_html( $field['label'] ); ?>
+								<?php else : ?>
+									<label for="<?php echo esc_attr( 'dn_bfs_' . $field['key'] ); ?>"><?php echo esc_html( $field['label'] ); ?></label>
+								<?php endif; ?>
+							</th>
 							<td><?php dn_bfs_render_setting_field( $field, $data['values'][ $field['key'] ], $data['meta'] ); ?></td>
 						</tr>
 					<?php endforeach; ?>
@@ -477,7 +568,10 @@ function dn_bfs_render_settings_page() {
 	<div class="wrap dn-burst-wrap dn-burst-settings">
 		<h1 class="wp-heading-inline"><?php esc_html_e( 'Funnel Stats Settings', 'dn-burst-funnel-stats' ); ?></h1>
 		<?php if ( '' !== $notice ) : ?>
-			<?php list( $type, $message ) = dn_bfs_settings_notice( $notice ); ?>
+			<?php
+			// phpcs:ignore WordPress.Security.NonceVerification
+			list( $type, $message ) = dn_bfs_settings_notice( $notice, array( 'done' => isset( $_GET['dn_done'] ) ? absint( $_GET['dn_done'] ) : 0, 'left' => isset( $_GET['dn_left'] ) ? absint( $_GET['dn_left'] ) : 0 ) );
+			?>
 			<div class="notice notice-<?php echo esc_attr( $type ); ?> is-dismissible"><p><?php echo esc_html( $message ); ?></p></div>
 		<?php endif; ?>
 		<nav class="nav-tab-wrapper dn-burst-tabs">

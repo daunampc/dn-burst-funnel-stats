@@ -118,3 +118,100 @@ dn_bfs_it(
 		$_GET = array();
 	}
 );
+
+dn_bfs_it_today(
+	're-aggregate outcomes map to honest notices',
+	function () {
+		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 3 ) ) );
+		$day = wp_date( 'Y-m-d', dn_bfs_it_day_noon( 3 ) );
+		delete_option( 'dnbfs_aggregate_lock' );
+
+		$outcome = dn_bfs_settings_data_task( 'reaggregate', array( 'start' => $day, 'end' => $day ), array() );
+		dn_bfs_assert_same( array( 'tab' => 'data', 'notice' => 'reaggregated' ), $outcome, 'full success' );
+
+		$today   = wp_date( 'Y-m-d', dn_bfs_it_now() );
+		$outcome = dn_bfs_settings_data_task( 'reaggregate', array( 'start' => $today, 'end' => $today ), array() );
+		dn_bfs_assert_same( 'reagg_none', $outcome['notice'], 'nothing queued' );
+		dn_bfs_assert_same( 'info', dn_bfs_settings_notice( 'reagg_none' )[0] );
+
+		update_option( 'dnbfs_aggregate_lock', ( time() + 300 ) . '|other', false );
+		$outcome = dn_bfs_settings_data_task( 'reaggregate', array( 'start' => $day, 'end' => $day ), array() );
+		dn_bfs_assert_same( 'reagg_locked', $outcome['notice'], 'locked' );
+		dn_bfs_assert_true( false !== strpos( dn_bfs_settings_notice( 'reagg_locked' )[1], 'running' ), 'locked message' );
+		delete_option( 'dnbfs_aggregate_lock' );
+
+		// Budget of 0 lets each run rebuild only one day, so the rest stay queued.
+		$start  = wp_date( 'Y-m-d', dn_bfs_it_day_noon( 4 ) );
+		$budget = function () {
+			return 0;
+		};
+		add_filter( 'dn_bfs_aggregate_time_budget', $budget );
+		$outcome = dn_bfs_settings_data_task( 'reaggregate', array( 'start' => $start, 'end' => $day ), array() );
+		remove_filter( 'dn_bfs_aggregate_time_budget', $budget );
+
+		dn_bfs_assert_same( 'reagg_partial', $outcome['notice'], 'partial' );
+		dn_bfs_assert_true( $outcome['args']['dn_left'] > 0 && $outcome['args']['dn_done'] > 0, 'partial counts' );
+		$message = dn_bfs_settings_notice( 'reagg_partial', array( 'done' => 1, 'left' => 3 ) )[1];
+		dn_bfs_assert_same( '1 days rebuilt, 3 remaining queued for the background job.', $message );
+
+		update_option( 'dnbfs_aggregate_last_error', array( 'date' => $day, 'message' => 'boom' ), false );
+		$failed = dn_bfs_settings_notice( 'reagg_failed' );
+		dn_bfs_assert_same( 'error', $failed[0] );
+		dn_bfs_assert_true( false !== strpos( $failed[1], 'boom' ), 'error message' );
+		delete_option( 'dnbfs_aggregate_last_error' );
+	}
+);
+
+dn_bfs_it(
+	'selected products beyond the list cap round-trip through the tracking tab',
+	function () {
+		dn_bfs_it_login_admin();
+		$ids = array();
+
+		foreach ( array( 'Zed product', 'Zulu product' ) as $title ) {
+			$ids[] = wp_insert_post( array( 'post_type' => 'product', 'post_status' => 'publish', 'post_title' => $title ) );
+		}
+
+		$one = function () {
+			return 1;
+		};
+		add_filter( 'dn_bfs_settings_posts_limit', $one );
+
+		dn_bfs_assert_same( 'saved', dn_bfs_settings_save_from_post( 'tracking', array( 'dn_bfs' => array( 'product_tracking_mode' => 'selected', 'selected_product_ids' => array_map( 'strval', $ids ) ) ) ) );
+
+		ob_start();
+		dn_bfs_render_settings_form( 'tracking' );
+		$html = ob_get_clean();
+		remove_filter( 'dn_bfs_settings_posts_limit', $one );
+
+		foreach ( $ids as $id ) {
+			dn_bfs_assert_true( (bool) preg_match( '/<option value="' . $id . '"\s+selected=\'selected\'/', $html ), 'selected option ' . $id );
+		}
+
+		foreach ( $ids as $id ) {
+			wp_delete_post( $id, true );
+		}
+	}
+);
+
+dn_bfs_it(
+	'geoip tab masks the stored license key and notices hide raw reasons',
+	function () {
+		dn_bfs_it_login_admin();
+		dn_bfs_it_settings( array( 'maxmind_license_key' => 'REALKEY123456' ) );
+		$_GET = array( 'page' => 'dn-burst-funnel-stats-settings', 'tab' => 'geoip' );
+
+		add_filter( 'pre_http_request', '__return_empty_array' );
+		ob_start();
+		dn_bfs_render_settings_page();
+		$html = ob_get_clean();
+		remove_filter( 'pre_http_request', '__return_empty_array' );
+		$_GET = array();
+
+		dn_bfs_assert_true( false !== strpos( $html, '********' ), 'masked' );
+		dn_bfs_assert_true( false === strpos( $html, 'REALKEY123456' ), 'real key hidden' );
+
+		$message = dn_bfs_settings_notice( 'geoip_http://evil.example/x' )[1];
+		dn_bfs_assert_true( false === strpos( $message, 'evil' ), 'unknown reason not echoed' );
+	}
+);
