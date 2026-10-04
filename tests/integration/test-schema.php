@@ -10,7 +10,7 @@ dn_bfs_it(
 			dn_bfs_assert_same( $table, $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ), $name );
 		}
 
-		dn_bfs_assert_same( '4', (string) get_option( 'dn_burst_funnel_stats_schema_version' ), 'schema version' );
+		dn_bfs_assert_same( '5', (string) get_option( 'dn_burst_funnel_stats_schema_version' ), 'schema version' );
 	}
 );
 

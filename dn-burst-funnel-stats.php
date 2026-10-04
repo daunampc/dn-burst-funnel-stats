@@ -32,7 +32,7 @@ define('DN_BURST_FUNNEL_STATS_URL', plugin_dir_url(__FILE__));
 define('DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats');
 
 define('DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '4');
+define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '5');
 
 /**
  * Load translations.
