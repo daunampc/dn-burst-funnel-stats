@@ -83,4 +83,11 @@ class TrackingSettingsTest extends TestCase {
 		$this->assertFalse( dn_bfs_is_bot_user_agent( 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1' ) );
 		$this->assertFalse( dn_bfs_is_bot_user_agent( '' ) );
 	}
+
+	public function test_default_date_range_accepts_presets() {
+		$this->assertSame( 'last_week', dn_bfs_sanitize_tracking_settings( array( 'default_date_range' => 'last_week' ) )['default_date_range'] );
+		$this->assertSame( 'month_to_date', dn_bfs_sanitize_tracking_settings( array( 'default_date_range' => 'custom' ) )['default_date_range'] );
+		$this->assertSame( 'month_to_date', dn_bfs_sanitize_tracking_settings( array( 'default_date_range' => 'nope' ) )['default_date_range'] );
+		$this->assertContains( 'year_to_date', dn_bfs_default_range_presets() );
+	}
 }

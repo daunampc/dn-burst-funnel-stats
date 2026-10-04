@@ -52,6 +52,10 @@ function dn_bfs_default_bot_keywords() {
 	);
 }
 
+function dn_bfs_default_range_presets() {
+	return array( 'today', 'yesterday', 'week_to_date', 'last_week', 'month_to_date', 'last_month', 'quarter_to_date', 'last_quarter', 'year_to_date', 'last_year' );
+}
+
 function dn_bfs_tracking_int_ranges() {
 	return array(
 		'session_timeout'         => array( 5, 240, 30 ),
@@ -210,7 +214,7 @@ function dn_bfs_sanitize_tracking_settings( $settings ) {
 		'invalid_excluded_ips'   => array_values( array_unique( $invalid ) ),
 		'exclude_bots'           => empty( $settings['exclude_bots'] ) ? 0 : 1,
 		'custom_bot_user_agents' => dn_bfs_normalize_lines( $custom_bots ),
-		'default_date_range'     => 'month_to_date',
+		'default_date_range'     => isset( $settings['default_date_range'] ) && in_array( $settings['default_date_range'], dn_bfs_default_range_presets(), true ) ? $settings['default_date_range'] : 'month_to_date',
 		'default_compare'        => $compare,
 		'tracking_enabled'       => isset( $settings['tracking_enabled'] ) ? ( empty( $settings['tracking_enabled'] ) ? 0 : 1 ) : 1,
 		'excluded_roles'         => array_values( array_filter( array_unique( array_map( 'sanitize_key', (array) $settings['excluded_roles'] ) ) ) ),
