@@ -200,6 +200,24 @@ function dn_bfs_mark_order_dirty( $order_id ) {
 }
 add_action( 'woocommerce_order_status_changed', 'dn_bfs_mark_order_dirty', 10, 1 );
 add_action( 'woocommerce_order_refunded', 'dn_bfs_mark_order_dirty', 10, 1 );
+add_action( 'woocommerce_update_order', 'dn_bfs_mark_order_dirty', 10, 1 );
+add_action( 'woocommerce_trash_order', 'dn_bfs_mark_order_dirty', 10, 1 );
+add_action( 'woocommerce_untrash_order', 'dn_bfs_mark_order_dirty', 10, 1 );
+add_action( 'woocommerce_before_delete_order', 'dn_bfs_mark_order_dirty', 10, 1 );
+add_action( 'woocommerce_delete_order', 'dn_bfs_mark_order_dirty', 10, 1 );
+
+/**
+ * Post-level trash/untrash/delete of orders stored as posts (legacy storage
+ * or HPOS placeholders); the post id is the order id.
+ */
+function dn_bfs_mark_order_post_dirty( $post_id ) {
+	if ( in_array( get_post_type( $post_id ), array( 'shop_order', 'shop_order_placehold' ), true ) ) {
+		dn_bfs_mark_order_dirty( $post_id );
+	}
+}
+add_action( 'wp_trash_post', 'dn_bfs_mark_order_post_dirty', 10, 1 );
+add_action( 'untrashed_post', 'dn_bfs_mark_order_post_dirty', 10, 1 );
+add_action( 'before_delete_post', 'dn_bfs_mark_order_post_dirty', 10, 1 );
 
 function dn_bfs_mark_spam_session_dirty( $session_id, $started_at ) {
 	unset( $session_id );

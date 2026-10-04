@@ -416,3 +416,52 @@ dn_bfs_it(
 		dn_bfs_assert_true( false === get_option( 'dnbfs_aggregate_last_error' ), 'error cleared' );
 	}
 );
+
+dn_bfs_it(
+	'trashed orders are not sales and trash, untrash, delete and edits flag the order date dirty',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+		$day_ts  = dn_bfs_it_day_noon( 2 );
+		$date    = wp_date( 'Y-m-d', $day_ts );
+		$session = dn_bfs_it_seed_session( array( 'started_at' => $day_ts ) );
+
+		$product = (int) wc_get_products( array( 'limit' => 1, 'return' => 'ids' ) )[0];
+		$order   = wc_create_order();
+		$order->add_product( wc_get_product( $product ), 1 );
+		$order->calculate_totals();
+		$order->set_status( 'processing' );
+		$order->save();
+		$order_id = $order->get_id();
+		dn_bfs_it_seed_event( $session, 'order', $day_ts, array( 'order_id' => $order_id ) );
+
+		list( $start, $end ) = dn_bfs_day_bounds( $date );
+		dn_bfs_assert_same( 1, dn_bfs_raw_order_rows( $start, $end, 'total', array() )['']['orders'], 'counted before trash' );
+
+		dn_bfs_it_clear_dirty_dates();
+		$order->set_customer_note( 'edited' );
+		$order->save();
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates(), 'edit' );
+
+		dn_bfs_it_clear_dirty_dates();
+		wc_get_order( $order_id )->delete( false );
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates(), 'trash' );
+
+		dn_bfs_raw_get_order( 0, true );
+		$trashed = dn_bfs_raw_order_rows( $start, $end, 'total', array() )[''];
+		dn_bfs_assert_same( 'trash', wc_get_order( $order_id )->get_status() );
+		dn_bfs_assert_same( 0, $trashed['orders'], 'trashed orders' );
+		dn_bfs_assert_same( 0.0, $trashed['revenue'], 'trashed revenue' );
+		dn_bfs_assert_same( 0.0, $trashed['paid'], 'trashed paid' );
+
+		dn_bfs_it_clear_dirty_dates();
+		wc_get_order( $order_id )->untrash();
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates(), 'untrash' );
+
+		dn_bfs_it_clear_dirty_dates();
+		wc_get_order( $order_id )->delete( true );
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates(), 'delete' );
+
+		dn_bfs_raw_get_order( 0, true );
+		dn_bfs_assert_same( array(), dn_bfs_raw_order_rows( $start, $end, 'total', array() ), 'deleted orders' );
+	}
+);

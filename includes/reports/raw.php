@@ -263,13 +263,16 @@ function dn_bfs_order_tip_total( $order, $keywords ) {
  * Per-order sale metrics, computed once per order and shared by every dimension.
  * Money is net of refunds: revenue and paid are total - refunded, items are
  * line quantities minus refunded quantities; tips stay gross (fee totals).
+ * Trashed orders and orders in an unregistered status are not sales, paid or balance.
  *
  * @return array{is_sale: bool, metrics: array, products: array} `products` maps
  *               product id => metrics for sale orders (empty otherwise).
  */
 function dn_bfs_raw_order_metrics( $order, $settings, $with_products ) {
 	$status      = dn_bfs_order_status_key( $order );
-	$is_sale     = ! in_array( $status, $settings['sales_excluded_statuses'], true );
+	$known       = isset( $settings['order_statuses'] ) ? $settings['order_statuses'] : array_keys( wc_get_order_statuses() );
+	$is_order    = 'wc-trash' !== $status && in_array( $status, $known, true );
+	$is_sale     = $is_order && ! in_array( $status, $settings['sales_excluded_statuses'], true );
 	$order_total = (float) $order->get_total();
 	$net_total   = max( 0.0, $order_total - (float) $order->get_total_refunded() );
 	$metrics     = array_fill_keys( dn_bfs_order_columns(), 0 );
@@ -285,11 +288,11 @@ function dn_bfs_raw_order_metrics( $order, $settings, $with_products ) {
 		}
 	}
 
-	if ( in_array( $status, $settings['paid_statuses'], true ) ) {
+	if ( $is_order && in_array( $status, $settings['paid_statuses'], true ) ) {
 		$metrics['paid'] = $net_total;
 	}
 
-	if ( in_array( $status, $settings['balance_statuses'], true ) ) {
+	if ( $is_order && in_array( $status, $settings['balance_statuses'], true ) ) {
 		$metrics['balance'] = $order_total;
 	}
 
@@ -369,8 +372,9 @@ function dn_bfs_raw_order_rows_query( $start, $end, $dimensions, $filters ) {
 		ARRAY_A
 	);
 
-	$settings      = dn_bfs_get_wc_report_settings();
-	$with_products = isset( $columns['product'] );
+	$settings                   = dn_bfs_get_wc_report_settings();
+	$settings['order_statuses'] = array_keys( wc_get_order_statuses() );
+	$with_products              = isset( $columns['product'] );
 
 	foreach ( (array) $results as $result ) {
 		$order = dn_bfs_raw_get_order( (int) $result['order_id'] );
