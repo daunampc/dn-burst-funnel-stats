@@ -1,7 +1,20 @@
+# Local backup of development files (not part of the plugin)
+/backup/
+
+# Development tooling and docs (kept locally in backup/)
+/docs/
+/tests/
+/docker/
+/bin/
+/composer.json
+/composer.lock
+/phpunit.xml.dist
+/.distignore
+
+# Build output, dependencies and caches
 /vendor/
 /node_modules/
-/docker/.env
+/dist/
 /.superpowers/
 .phpunit.result.cache
 .DS_Store
-/dist/

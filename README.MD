@@ -127,13 +127,7 @@ Raw hits are aggregated into daily totals every hour. If WP-Cron is disabled, ma
 
 == GitHub Updates ==
 
-The plugin updates from GitHub releases. Create a release with a tag such as `v3.0.1` and attach the zip built below (any `.zip` asset works; its top-level folder must be `dn-burst-funnel-stats/`).
-
-== Build ==
-
-Build the release package (runtime files only, honoring `.distignore`) into `dist/dn-burst-funnel-stats-<version>.zip`:
-
-`docker run --rm -v "$PWD":/app -w /app alpine sh -c "apk add --no-cache bash zip rsync >/dev/null && bash bin/build-zip.sh"`
+The plugin updates from GitHub releases. Create a release with a tag such as `v3.0.1` and attach the plugin zip (any `.zip` asset works; its top-level folder must be `dn-burst-funnel-stats/`).
 
 == Changelog ==
 
