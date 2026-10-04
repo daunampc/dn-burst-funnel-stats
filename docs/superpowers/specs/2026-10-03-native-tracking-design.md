@@ -1,7 +1,7 @@
 # Native Tracking — thay thế Burst Statistics
 
 - Ngày: 2026-10-03
-- Phiên bản đích: plugin **3.0.0**, schema **4**
+- Phiên bản đích: plugin **3.0.0**, schema **6** (Kế hoạch 1 lên 4, Kế hoạch 2 lên 5, Kế hoạch 3 lên 6)
 - Trạng thái: Thiết kế đã duyệt (gồm giao diện admin PHP)
 
 ## 1. Mục tiêu
@@ -49,7 +49,7 @@ Dashboard + REST API công khai ──▶ reports.php ──▶ daily (quá kh�
 
 ## 3. Database
 
-Tạo bằng `dbDelta` khi kích hoạt và khi `dn_burst_funnel_stats_schema_version` < 4. Tiền tố `{$wpdb->prefix}dnbfs_`. Mọi thời gian lưu dạng epoch UTC (`INT UNSIGNED`); ngày (`date`) trong `dnbfs_daily` là ngày theo múi giờ site.
+Tạo bằng `dbDelta` khi kích hoạt và khi `dn_burst_funnel_stats_schema_version` < 6 (`DN_BURST_FUNNEL_STATS_SCHEMA_VERSION`). Tiền tố `{$wpdb->prefix}dnbfs_`. Mọi thời gian lưu dạng epoch UTC (`INT UNSIGNED`); ngày (`date`) trong `dnbfs_daily` là ngày theo múi giờ site.
 
 ### `dnbfs_visitors`
 | Cột | Kiểu | Ghi chú |
@@ -258,7 +258,7 @@ Namespace `/wp-json/dnbfs/v1/`, chỉ GET, dành cho gọi server-to-server (ví
 
 - Bỏ `dn_burst_funnel_stats_is_burst_pro_active` và mọi kiểm tra Burst; header chỉ `Requires Plugins: woocommerce`.
 - Bỏ submenu dưới menu `burst`, bỏ mọi truy vấn `wp_burst_statistics` và các hàm `dn_burst_dash_burst_*`, `dn_burst_dash_get_atc_*`.
-- Migration schema 4: tạo bảng, thêm giá trị mặc định cho Settings mới, xóa option `dn_atc_*` và transient `dn_atc_*`, lên lịch cron `dnbfs_aggregate` và `dnbfs_cleanup`, hủy cron `dn_burst_funnel_stats_refresh_cache` cũ.
+- Migration lên schema 6 (`dn_burst_funnel_stats_maybe_migrate()` + `dn_bfs_migrate_legacy_cleanup()`, idempotent): tạo bảng bằng `dbDelta`, ghi lại Settings tracking với giá trị mặc định mới, xóa option `dn_atc_*`, transient `dn_atc_*`/`dn_bfs_*` và các option cũ (`dn_bfs_data_last_changed`, `dn_burst_funnel_stats_last_refresh`, `dn_burst_funnel_stats_url_tracking_settings`) bằng `delete_option` từng tên, hủy cron `dn_burst_funnel_stats_refresh_cache` cũ; chỉ nâng `dn_burst_funnel_stats_schema_version` khi mọi bảng đã tồn tại. Cron `dnbfs_aggregate` và `dnbfs_cleanup` được lên lịch khi kích hoạt/khởi động.
 - Version 3.0.0 ở header và hằng số; cập nhật README (bỏ Burst, mô tả tracking, cookie, API).
 
 ## 11. Cấu trúc file
@@ -285,13 +285,19 @@ includes/
   reports/metrics.php
   reports/wc-settings.php
   reports/raw.php
-  settings.php            (schema + sanitize cho 8 nhóm, không còn render HTML)
-  api/auth.php
-  api/routes.php          (REST công khai)
-  api/openapi.php
-  admin/ajax.php          (handler admin-ajax cho dashboard; REST công khai ở api/routes.php, Kế hoạch 4)
-  admin/pages.php         (menu, nạp assets, render HTML)
+  admin/request.php        (tham số khoảng ngày/bộ lọc dùng chung cho AJAX, trang và REST sau này)
+  admin/settings-model.php (nhóm Settings: đọc/lưu đủ khóa, che license)
+  admin/settings-page.php  (màn Settings: 7 tab, form admin-post, notice)
+  admin/data-tools.php     (tổng hợp lại, xóa dữ liệu, export/import, GeoIP, thống kê bảng)
+  admin/system-status.php  (các kiểm tra của tab Hệ thống)
+  admin/dashboard-data.php (payload thẻ, biểu đồ, funnel)
+  admin/dashboard-page.php (render HTML dashboard, hàm dn_bfs_dash_*)
+  admin/ajax.php           (handler admin-ajax cho dashboard)
+  admin/menu.php           (menu, nạp assets, dnBfsAdmin)
   admin/dashboard-widget.php
+  api/auth.php             (Kế hoạch 4)
+  api/routes.php           (REST công khai, Kế hoạch 4)
+  api/openapi.php          (Kế hoạch 4)
   date-ranges.php
   class-github-updater.php
 lib/maxmind-db/           (MaxMind\Db\Reader thuần PHP, Apache-2.0)
@@ -302,7 +308,7 @@ tests/php/ (unit), tests/integration/ (tích hợp WordPress)
 docker/
 ```
 
-Import/Export (Settings → Dữ liệu): xuất/nhập Settings (không gồm API key); không xuất dữ liệu thô. Xóa `includes/ajax.php`, `includes/admin-menu.php`, `includes/dashboard.php`, `includes/import-export.php` sau khi phần thay thế hoàn tất.
+Import/Export (Settings → Dữ liệu): xuất/nhập Settings (không gồm API key); không xuất dữ liệu thô. Đã xóa `includes/ajax.php`, `includes/admin-menu.php`, `includes/dashboard.php`, `includes/settings.php`, `includes/import-export.php` (Kế hoạch 3).
 
 ## 12. Môi trường test bằng Docker
 
