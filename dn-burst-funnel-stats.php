@@ -127,7 +127,7 @@ function dn_burst_funnel_stats_load_reports()
  */
 function dn_burst_funnel_stats_load_admin()
 {
-  foreach (array('request', 'settings-model', 'system-status', 'dashboard-data', 'dashboard-page', 'ajax') as $module) {
+  foreach (array('request', 'settings-model', 'system-status', 'dashboard-data', 'dashboard-page', 'ajax', 'data-tools', 'settings-page') as $module) {
     require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin/' . $module . '.php';
   }
 }
