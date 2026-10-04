@@ -16,7 +16,7 @@
 - Tiền tố hàm: `dn_bfs_`. Tên bảng qua `dn_bfs_table( $name )`. Mọi SQL có biến đi qua `$wpdb->prepare`.
 - Phong cách: hàm thủ tục, tab thụt lề, khoảng trắng kiểu WordPress trong `includes/`; file `dn-burst-funnel-stats.php` dùng 2 space và không có khoảng trắng trong ngoặc.
 - Thời gian lưu dạng epoch UTC; ngày `Y-m-d` luôn theo `wp_timezone()` (`wp_date()`); khoảng thời gian dạng `[start, end)` (end loại trừ).
-- `dnbfs_daily` giữ mãi mãi; dữ liệu thô giữ `raw_retention_days` ngày (mặc định 90); ngày `D` còn dữ liệu thô khi `D >= dn_bfs_raw_cutoff_date( $now )`.
+- `dnbfs_daily` giữ mãi mãi; dữ liệu thô giữ `raw_retention_days` ngày (mặc định 90); ngày `D` còn dữ liệu thô khi `D >= dn_bfs_raw_available_from( $now )` (min của ngày cắt theo thời hạn giữ và watermark+1).
 - Dimension `blocked` trong `dnbfs_daily` là bộ đếm sống — aggregator **không bao giờ** xóa/ghi đè dòng `blocked`.
 - Đơn hàng: chỉ đếm từ sự kiện `order` đã ghi (mỗi `order_id` một lần), theo **trạng thái hiện tại** của đơn. Mọi chỉ số tiền/số lượng trừ hoàn tiền: Sales = mọi trạng thái trừ `wc-cancelled`, `wc-failed`, `wc-checkout-draft`, `wc-refunded`; revenue = max(0, total − refunded); items = Σ max(0, qty − qty đã hoàn); tips gộp (không trừ hoàn); Paid = `wc-processing` + `wc-completed`, tính max(0, total − refunded); Balance = tổng `wc-pending` + `wc-on-hold` (đều chỉnh được ở settings WooCommerce). Đơn của phiên spam vẫn được đếm (là tiền thật).
 - Đơn fallback có `session_id = 0`, `visitor_uid = ''`: luôn LEFT JOIN sessions, không bao giờ đếm `''` là một khách.

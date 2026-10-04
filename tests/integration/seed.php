@@ -3,8 +3,21 @@
  * Direct-insert fixtures for report tests (bypasses the tracking guard and limits).
  */
 
+/**
+ * "Now" for tests with today's data. Never earlier than today 00:00 +
+ * session_timeout + 1 minute, so the aggregator can always close yesterday no
+ * matter when the suite runs; seed "today" data at dn_bfs_it_now() - N. Pass it
+ * explicitly as $now (locks stay on the real clock).
+ */
+function dn_bfs_it_now() {
+	$settings = dn_bfs_get_tracking_settings();
+	$midnight = dn_bfs_day_bounds_for_test( wp_date( 'Y-m-d', time() ) )[0];
+
+	return max( time(), $midnight + (int) $settings['session_timeout'] * MINUTE_IN_SECONDS + 60 );
+}
+
 function dn_bfs_it_day_noon( $days_ago ) {
-	$date = dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -1 * (int) $days_ago );
+	$date = dn_bfs_date_shift( wp_date( 'Y-m-d', dn_bfs_it_now() ), -1 * (int) $days_ago );
 
 	return ( new DateTimeImmutable( $date . ' 12:00:00', wp_timezone() ) )->getTimestamp();
 }
@@ -102,11 +115,24 @@ function dn_bfs_it_seed_event( $session, $type, $time, $fields = array() ) {
 }
 
 function dn_bfs_it_day_range( $days_ago ) {
-	return dn_bfs_day_bounds_for_test( dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -1 * $days_ago ) );
+	return dn_bfs_day_bounds_for_test( dn_bfs_date_shift( wp_date( 'Y-m-d', dn_bfs_it_now() ), -1 * $days_ago ) );
 }
 
 function dn_bfs_day_bounds_for_test( $date ) {
 	$start = new DateTimeImmutable( $date . ' 00:00:00', wp_timezone() );
 
 	return array( $start->getTimestamp(), $start->modify( '+1 day' )->getTimestamp() );
+}
+
+/**
+ * dn_bfs_it() for tests with today's data: also pins dn_bfs_now() to dn_bfs_it_now().
+ */
+function dn_bfs_it_today( $name, $callback ) {
+	dn_bfs_it(
+		$name,
+		function () use ( $callback ) {
+			dn_bfs_it_set_now( dn_bfs_it_now() );
+			$callback();
+		}
+	);
 }

@@ -24,7 +24,7 @@ function dn_bfs_it_first_product() {
 	return (int) wc_get_products( array( 'limit' => 1, 'status' => 'publish', 'orderby' => 'ID', 'order' => 'ASC', 'return' => 'ids' ) )[0];
 }
 
-dn_bfs_it(
+dn_bfs_it_today(
 	'order rows use current WooCommerce status for sales, paid and balance',
 	function () {
 		dn_bfs_raw_get_order( 0, true );
@@ -60,7 +60,7 @@ dn_bfs_it(
 	}
 );
 
-dn_bfs_it(
+dn_bfs_it_today(
 	'fallback orders without a session group by their own attribution and spam sessions still count',
 	function () {
 		dn_bfs_raw_get_order( 0, true );
@@ -94,7 +94,7 @@ dn_bfs_it(
 	}
 );
 
-dn_bfs_it(
+dn_bfs_it_today(
 	'product order rows count each order once per product with line totals',
 	function () {
 		dn_bfs_raw_get_order( 0, true );
@@ -117,7 +117,7 @@ dn_bfs_it(
 	}
 );
 
-dn_bfs_it(
+dn_bfs_it_today(
 	'product revenue and items net out item refunds',
 	function () {
 		dn_bfs_raw_get_order( 0, true );
@@ -147,7 +147,7 @@ dn_bfs_it(
 	}
 );
 
-dn_bfs_it(
+dn_bfs_it_today(
 	'raw rows merge traffic, events and orders',
 	function () {
 		dn_bfs_raw_get_order( 0, true );
@@ -171,7 +171,7 @@ dn_bfs_it(
 	}
 );
 
-dn_bfs_it(
+dn_bfs_it_today(
 	'multi-dimension order rows and the aggregated day match per-dimension order rows',
 	function () {
 		dn_bfs_raw_get_order( 0, true );
@@ -204,7 +204,7 @@ dn_bfs_it(
 			dn_bfs_assert_same( $expected, $multi[ $dimension ], $dimension );
 		}
 
-		dn_bfs_assert_same( 'full', dn_bfs_aggregate_day( $date, time() ) );
+		dn_bfs_assert_same( 'full', dn_bfs_aggregate_day( $date, dn_bfs_it_now() ) );
 
 		foreach ( $dimensions as $dimension ) {
 			foreach ( dn_bfs_raw_order_rows( $start, $end, $dimension, array() ) as $value => $metrics ) {
@@ -218,7 +218,7 @@ dn_bfs_it(
 	}
 );
 
-dn_bfs_it(
+dn_bfs_it_today(
 	'sales are net of refunds: refunded orders drop out, items and paid net out partial refunds',
 	function () {
 		dn_bfs_raw_get_order( 0, true );

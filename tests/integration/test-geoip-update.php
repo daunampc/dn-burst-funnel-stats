@@ -78,7 +78,18 @@ dn_bfs_it(
 		dn_bfs_assert_true( (int) get_option( 'dnbfs_geoip_updated_at' ) > 0, 'timestamp stored' );
 		dn_bfs_assert_same( array(), glob( dirname( dn_bfs_geo_db_path() ) . '/download-*' ) );
 		dn_bfs_assert_same( "<?php // Silence is golden.", file_get_contents( dirname( dn_bfs_geo_db_path() ) . '/index.php' ) );
-		dn_bfs_assert_same( "Require all denied\nDeny from all\n", file_get_contents( dirname( dn_bfs_geo_db_path() ) . '/.htaccess' ) );
+		dn_bfs_assert_same( "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n", file_get_contents( dirname( dn_bfs_geo_db_path() ) . '/.htaccess' ) );
+
+		// A .htaccess written by an older plugin version is rewritten; a custom one is left alone.
+		$htaccess = dirname( dn_bfs_geo_db_path() ) . '/.htaccess';
+		file_put_contents( $htaccess, "Require all denied\nDeny from all\n" );
+		dn_bfs_ensure_private_dir( dirname( dn_bfs_geo_db_path() ) );
+		dn_bfs_assert_true( false !== strpos( file_get_contents( $htaccess ), '<IfModule mod_authz_core.c>' ), 'legacy htaccess rewritten' );
+		file_put_contents( $htaccess, 'custom' );
+		dn_bfs_ensure_private_dir( dirname( dn_bfs_geo_db_path() ) );
+		dn_bfs_assert_same( 'custom', file_get_contents( $htaccess ) );
+		unlink( $htaccess );
+		dn_bfs_ensure_private_dir( dirname( dn_bfs_geo_db_path() ) );
 
 		dn_bfs_it_unmock_geoip_http();
 	}

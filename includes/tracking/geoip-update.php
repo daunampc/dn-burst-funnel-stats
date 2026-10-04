@@ -32,12 +32,16 @@ function dn_bfs_ensure_private_dir( $dir ) {
 
 	$guards = array(
 		'index.php' => '<?php // Silence is golden.',
-		'.htaccess' => "Require all denied\nDeny from all\n",
+		'.htaccess' => "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
 	);
+	// Older plugin versions wrote this .htaccess, which is a 500 error on Apache 2.2 / 2.4 without the compat modules.
+	$legacy_htaccess = "Require all denied\nDeny from all\n";
 
 	foreach ( $guards as $name => $contents ) {
-		if ( ! file_exists( $dir . '/' . $name ) ) {
-			file_put_contents( $dir . '/' . $name, $contents ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		$path = $dir . '/' . $name;
+
+		if ( ! file_exists( $path ) || ( '.htaccess' === $name && $legacy_htaccess === file_get_contents( $path ) ) ) {
+			file_put_contents( $path, $contents ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 		}
 	}
 

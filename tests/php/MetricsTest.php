@@ -104,4 +104,15 @@ class MetricsTest extends TestCase {
 		$this->assertSame( dn_bfs_dim_hash( 'tiền boa' ), dn_bfs_dim_hash( 'TIỀN BOA' ) );
 		$this->assertSame( md5( '' ), dn_bfs_dim_hash( '' ) );
 	}
+
+	public function test_dim_key_lowercases_and_folds_accents_when_available() {
+		$this->assertSame( 'facebook', dn_bfs_dim_key( 'FaceBook' ) );
+		$this->assertSame( '', dn_bfs_dim_key( '' ) );
+		$this->assertSame( md5( dn_bfs_dim_key( 'Khuyến Mãi' ) ), dn_bfs_dim_hash( 'KHUYẾN MÃI' ) );
+
+		if ( function_exists( 'remove_accents' ) ) {
+			$this->assertSame( 'khuyen mai', dn_bfs_dim_key( 'Khuyến Mãi' ) );
+			$this->assertSame( 'd', dn_bfs_dim_key( 'Đ' ) );
+		}
+	}
 }

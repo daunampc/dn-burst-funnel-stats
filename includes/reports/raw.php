@@ -73,7 +73,7 @@ function dn_bfs_raw_filter_sql( $filters, $alias ) {
  */
 function dn_bfs_rows_add( &$rows, &$index, $key, $metrics ) {
 	$key   = (string) $key;
-	$lower = dn_bfs_lower( $key );
+	$lower = dn_bfs_dim_key( $key );
 
 	if ( isset( $index[ $lower ] ) ) {
 		$key          = $index[ $lower ];
@@ -89,7 +89,7 @@ function dn_bfs_rows_index( $rows ) {
 	$index = array();
 
 	foreach ( array_keys( $rows ) as $key ) {
-		$index[ dn_bfs_lower( $key ) ] = (string) $key;
+		$index[ dn_bfs_dim_key( $key ) ] = (string) $key;
 	}
 
 	return $index;
@@ -408,7 +408,7 @@ function dn_bfs_raw_order_rows_query( $start, $end, $dimensions, $filters ) {
 
 			foreach ( $adds as $key => $metrics ) {
 				$key   = (string) $key;
-				$lower = dn_bfs_lower( $key );
+				$lower = dn_bfs_dim_key( $key );
 
 				if ( ! isset( $indexes[ $dimension ][ $lower ] ) ) {
 					$indexes[ $dimension ][ $lower ] = $key;
