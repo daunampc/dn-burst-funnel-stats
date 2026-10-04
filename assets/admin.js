@@ -92,10 +92,16 @@
 			return;
 		}
 
-		var compare = range.compare !== 'none' && range.previous_range_label ? range.compare_label + ' (' + range.previous_range_label + ')' : '';
+		var compare = range.compare !== 'none' && range.previous_range_label ? range.compare_label : '';
+		var tooltip = range.current_label + ' (' + range.current_range_label + ')';
 
-		$('.dn-burst-date-title').text(range.current_label + ' (' + range.current_range_label + ')');
+		if (compare) {
+			tooltip += ' \u00b7 ' + compare + ' (' + range.previous_range_label + ')';
+		}
+
+		$('.dn-burst-date-title').text(range.current_label);
 		$('.dn-burst-date-compare').text(compare).prop('hidden', !compare);
+		$('[data-dn-date-toggle]').attr({ title: tooltip, 'aria-label': tooltip });
 	}
 
 	function loadTab(tab, pushState) {
@@ -118,6 +124,9 @@
 				return String($(this).attr('data-dn-tab')) === String(tab);
 			}).addClass('nav-tab-active');
 			$('.dn-burst-topbar-title').text(response.data.title);
+			// The new markup replaced the cards grid, so leave customize mode.
+			toggleCardButtons(false);
+			$('[data-dn-cards-toolbar]').prop('hidden', String(tab) !== 'overview');
 			config.tab = tab;
 			updateDateButton(response.data.range);
 			initCharts();

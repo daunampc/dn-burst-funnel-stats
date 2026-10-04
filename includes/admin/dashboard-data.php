@@ -82,47 +82,85 @@ function dn_bfs_dash_date_label( $date ) {
 	return wp_date( 'M j', ( new DateTimeImmutable( $date . ' 12:00:00', wp_timezone() ) )->getTimestamp() );
 }
 
+/**
+ * Per-card Dashicon (without the "dashicons-" prefix) and accent color.
+ */
+function dn_bfs_dashboard_card_styles() {
+	return array(
+		'visitors'          => array( 'groups', '#2563eb' ),
+		'product_views'     => array( 'visibility', '#7c3aed' ),
+		'pageviews'         => array( 'media-document', '#0891b2' ),
+		'atc'               => array( 'cart', '#ea580c' ),
+		'checkouts'         => array( 'yes-alt', '#d97706' ),
+		'orders_aov'        => array( 'archive', '#4f46e5' ),
+		'items_aoi'         => array( 'screenoptions', '#0d9488' ),
+		'conversion_rate'   => array( 'chart-line', '#16a34a' ),
+		'new_returning'     => array( 'admin-users', '#db2777' ),
+		'sales_tip'         => array( 'money-alt', '#059669' ),
+		'sessions'          => array( 'clock', '#475569' ),
+		'paid_balance'      => array( 'bank', '#0e7490' ),
+		'bounce_rate'       => array( 'undo', '#e11d48' ),
+		'avg_duration'      => array( 'backup', '#9333ea' ),
+		'pages_per_session' => array( 'admin-page', '#64748b' ),
+	);
+}
+
 function dn_bfs_dashboard_cards( $summary ) {
 	$cur      = $summary['current'];
 	$prev     = $summary['previous'];
 	$has_prev = null !== $prev;
+	$styles   = dn_bfs_dashboard_card_styles();
 	$was      = function ( $metric ) use ( $prev ) {
 		return null === $prev ? 0 : $prev[ $metric ];
 	};
 	$share    = function ( $value ) use ( $cur ) {
 		return $cur['visitors'] > 0 ? dn_bfs_dash_percent( $value / $cur['visitors'] * 100 ) : '0%';
 	};
-	$card     = function ( $title, $icon, $main, $secondary, $compare, $change, $help ) {
+	$trend    = function ( $metric ) use ( $summary ) {
+		if ( null === $summary['previous'] || ! isset( $summary['change'][ $metric ] ) ) {
+			return '';
+		}
+
+		$change = round( (float) $summary['change'][ $metric ], 1 );
+
+		return $change > 0 ? 'up' : ( $change < 0 ? 'down' : 'flat' );
+	};
+	$card     = function ( $key, $metric, $title, $main, $secondary, $compare, $help ) use ( $styles, $summary, $trend ) {
 		return array(
-			'title'     => $title,
-			'icon'      => $icon,
-			'main'      => $main,
-			'secondary' => $secondary,
-			'compare'   => $compare,
-			'change'    => $change,
-			'help'      => $help,
+			'title'           => $title,
+			'icon'            => $styles[ $key ][0],
+			'accent'          => $styles[ $key ][1],
+			'main'            => $main,
+			'secondary'       => $secondary,
+			'compare'         => $compare,
+			'change'          => dn_bfs_dash_change( $summary, $metric ),
+			'trend'           => $trend( $metric ),
+			'lower_is_better' => 'bounce_rate' === $metric,
+			'help'            => $help,
 		);
 	};
 
 	return array(
-		'visitors'          => $card( __( 'Visitors', 'dn-burst-funnel-stats' ), 'eye', dn_bfs_dash_number( $cur['visitors'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'visitors' ) ) : '', dn_bfs_dash_change( $summary, 'visitors' ), __( 'Unique visitors, identified by a first-party browser cookie.', 'dn-burst-funnel-stats' ) ),
-		'pageviews'         => $card( __( 'Pageviews', 'dn-burst-funnel-stats' ), 'layers', dn_bfs_dash_number( $cur['pageviews'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'pageviews' ) ) : '', dn_bfs_dash_change( $summary, 'pageviews' ), __( 'Pages viewed. Reloads of the same page within a few seconds count once.', 'dn-burst-funnel-stats' ) ),
-		'sessions'          => $card( __( 'Sessions', 'dn-burst-funnel-stats' ), 'user', dn_bfs_dash_number( $cur['sessions'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'sessions' ) ) : '', dn_bfs_dash_change( $summary, 'sessions' ), __( 'Visits. A session ends after 30 minutes without activity or at midnight.', 'dn-burst-funnel-stats' ) ),
+		'visitors'          => $card( 'visitors', 'visitors', __( 'Visitors', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['visitors'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'visitors' ) ) : '', __( 'Unique visitors, identified by a first-party browser cookie.', 'dn-burst-funnel-stats' ) ),
+		'pageviews'         => $card( 'pageviews', 'pageviews', __( 'Pageviews', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['pageviews'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'pageviews' ) ) : '', __( 'Pages viewed. Reloads of the same page within a few seconds count once.', 'dn-burst-funnel-stats' ) ),
+		'sessions'          => $card( 'sessions', 'sessions', __( 'Sessions', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['sessions'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'sessions' ) ) : '', __( 'Visits. A session ends after 30 minutes without activity or at midnight.', 'dn-burst-funnel-stats' ) ),
 		/* translators: %s: number of returning visitors. */
-		'new_returning'     => $card( __( 'New / Returning', 'dn-burst-funnel-stats' ), 'user', dn_bfs_dash_number( $cur['new_visitors'] ), sprintf( __( 'Returning: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['returning_visitors'] ) ), $has_prev ? dn_bfs_dash_number( $was( 'new_visitors' ) ) : '', dn_bfs_dash_change( $summary, 'new_visitors' ), __( 'New visitors had no earlier visit; returning visitors came back.', 'dn-burst-funnel-stats' ) ),
-		'bounce_rate'       => $card( __( 'Bounce Rate', 'dn-burst-funnel-stats' ), 'check', dn_bfs_dash_percent( $cur['bounce_rate'] ), '', $has_prev ? dn_bfs_dash_percent( $was( 'bounce_rate' ) ) : '', dn_bfs_dash_change( $summary, 'bounce_rate' ), __( 'Sessions with a single pageview.', 'dn-burst-funnel-stats' ) ),
-		'avg_duration'      => $card( __( 'Avg. Session Time', 'dn-burst-funnel-stats' ), 'clock', dn_bfs_dash_duration( $cur['avg_duration'] ), '', $has_prev ? dn_bfs_dash_duration( $was( 'avg_duration' ) ) : '', dn_bfs_dash_change( $summary, 'avg_duration' ), __( 'Average time the tab was visible per session.', 'dn-burst-funnel-stats' ) ),
-		'pages_per_session' => $card( __( 'Pages / Session', 'dn-burst-funnel-stats' ), 'layers', dn_bfs_dash_number( $cur['pages_per_session'], 2 ), '', $has_prev ? dn_bfs_dash_number( $was( 'pages_per_session' ), 2 ) : '', dn_bfs_dash_change( $summary, 'pages_per_session' ), __( 'Average pageviews per session.', 'dn-burst-funnel-stats' ) ),
-		'product_views'     => $card( __( 'Product Views', 'dn-burst-funnel-stats' ), 'product', dn_bfs_dash_number( $cur['product_views'] ), $share( $cur['product_views'] ), $has_prev ? dn_bfs_dash_number( $was( 'product_views' ) ) : '', dn_bfs_dash_change( $summary, 'product_views' ), __( 'Each visitor counts once per product within the anti-spam window.', 'dn-burst-funnel-stats' ) ),
+		'new_returning'     => $card( 'new_returning', 'new_visitors', __( 'New / returning', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['new_visitors'] ), sprintf( __( 'Returning: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['returning_visitors'] ) ), $has_prev ? dn_bfs_dash_number( $was( 'new_visitors' ) ) : '', __( 'New visitors had no earlier visit; returning visitors came back.', 'dn-burst-funnel-stats' ) ),
+		'bounce_rate'       => $card( 'bounce_rate', 'bounce_rate', __( 'Bounce rate', 'dn-burst-funnel-stats' ), dn_bfs_dash_percent( $cur['bounce_rate'] ), '', $has_prev ? dn_bfs_dash_percent( $was( 'bounce_rate' ) ) : '', __( 'Sessions with a single pageview.', 'dn-burst-funnel-stats' ) ),
+		'avg_duration'      => $card( 'avg_duration', 'avg_duration', __( 'Avg. session time', 'dn-burst-funnel-stats' ), dn_bfs_dash_duration( $cur['avg_duration'] ), '', $has_prev ? dn_bfs_dash_duration( $was( 'avg_duration' ) ) : '', __( 'Average time the tab was visible per session.', 'dn-burst-funnel-stats' ) ),
+		'pages_per_session' => $card( 'pages_per_session', 'pages_per_session', __( 'Pages / session', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['pages_per_session'], 2 ), '', $has_prev ? dn_bfs_dash_number( $was( 'pages_per_session' ), 2 ) : '', __( 'Average pageviews per session.', 'dn-burst-funnel-stats' ) ),
+		'product_views'     => $card( 'product_views', 'product_views', __( 'Product views', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['product_views'] ), $share( $cur['product_views'] ), $has_prev ? dn_bfs_dash_number( $was( 'product_views' ) ) : '', __( 'Each visitor counts once per product within the anti-spam window.', 'dn-burst-funnel-stats' ) ),
 		/* translators: %s: number of cart events. */
-		'atc'               => $card( __( 'Add To Cart', 'dn-burst-funnel-stats' ), 'cart', dn_bfs_dash_number( $cur['atc'] ), sprintf( __( 'Cart: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['carts'] ) ), $has_prev ? dn_bfs_dash_number( $was( 'atc' ) ) : '', dn_bfs_dash_change( $summary, 'atc' ), __( 'Add to cart and Cart are recorded together, so they are always equal.', 'dn-burst-funnel-stats' ) ),
-		'checkouts'         => $card( __( 'Checkout', 'dn-burst-funnel-stats' ), 'checkout', dn_bfs_dash_number( $cur['checkouts'] ), $share( $cur['checkouts'] ), $has_prev ? dn_bfs_dash_number( $was( 'checkouts' ) ) : '', dn_bfs_dash_change( $summary, 'checkouts' ), __( 'Sessions that reached the checkout page.', 'dn-burst-funnel-stats' ) ),
-		'orders_aov'        => $card( __( 'Orders / AOV', 'dn-burst-funnel-stats' ), 'orders', dn_bfs_dash_number( $cur['orders'] ), dn_bfs_dash_money( $cur['aov'] ), $has_prev ? dn_bfs_dash_number( $was( 'orders' ) ) : '', dn_bfs_dash_change( $summary, 'orders' ), __( 'By default, orders exclude cancelled, failed, draft and fully refunded orders. AOV is net of refunds.', 'dn-burst-funnel-stats' ) ),
-		'items_aoi'         => $card( __( 'Items / AOI', 'dn-burst-funnel-stats' ), 'box', dn_bfs_dash_number( $cur['items'] ), dn_bfs_dash_number( $cur['aoi'], 2 ), $has_prev ? dn_bfs_dash_number( $was( 'items' ) ) : '', dn_bfs_dash_change( $summary, 'items' ), __( 'Items sold, net of refunded quantities.', 'dn-burst-funnel-stats' ) ),
-		'conversion_rate'   => $card( __( 'Conversion Rate', 'dn-burst-funnel-stats' ), 'check', dn_bfs_dash_percent( $cur['conversion_rate'], 2 ), '', $has_prev ? dn_bfs_dash_percent( $was( 'conversion_rate' ), 2 ) : '', dn_bfs_dash_change( $summary, 'conversion_rate' ), __( 'Orders divided by visitors.', 'dn-burst-funnel-stats' ) ),
+		'atc'               => $card( 'atc', 'atc', __( 'Add to cart', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['atc'] ), sprintf( __( 'Cart: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['carts'] ) ), $has_prev ? dn_bfs_dash_number( $was( 'atc' ) ) : '', __( 'Add to cart and Cart are recorded together, so they are always equal.', 'dn-burst-funnel-stats' ) ),
+		'checkouts'         => $card( 'checkouts', 'checkouts', __( 'Checkout', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['checkouts'] ), $share( $cur['checkouts'] ), $has_prev ? dn_bfs_dash_number( $was( 'checkouts' ) ) : '', __( 'Sessions that reached the checkout page.', 'dn-burst-funnel-stats' ) ),
+		/* translators: %s: average order value. */
+		'orders_aov'        => $card( 'orders_aov', 'orders', __( 'Orders / AOV', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['orders'] ), sprintf( __( 'AOV: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['aov'] ) ), $has_prev ? dn_bfs_dash_number( $was( 'orders' ) ) : '', __( 'By default, orders exclude cancelled, failed, draft and fully refunded orders. AOV is net of refunds.', 'dn-burst-funnel-stats' ) ),
+		/* translators: %s: average items per order. */
+		'items_aoi'         => $card( 'items_aoi', 'items', __( 'Items / AOI', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['items'] ), sprintf( __( 'AOI: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['aoi'], 2 ) ), $has_prev ? dn_bfs_dash_number( $was( 'items' ) ) : '', __( 'Items sold, net of refunded quantities.', 'dn-burst-funnel-stats' ) ),
+		'conversion_rate'   => $card( 'conversion_rate', 'conversion_rate', __( 'Conversion rate', 'dn-burst-funnel-stats' ), dn_bfs_dash_percent( $cur['conversion_rate'], 2 ), '', $has_prev ? dn_bfs_dash_percent( $was( 'conversion_rate' ), 2 ) : '', __( 'Orders divided by visitors.', 'dn-burst-funnel-stats' ) ),
 		/* translators: %s: tip total. */
-		'sales_tip'         => $card( __( 'Sales / Tip', 'dn-burst-funnel-stats' ), 'dollar', dn_bfs_dash_money( $cur['revenue'] ), sprintf( __( 'Tip: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['tips'] ) ), $has_prev ? dn_bfs_dash_money( $was( 'revenue' ) ) : '', dn_bfs_dash_change( $summary, 'revenue' ), __( 'Sales are net of refunds; tips are gross fee totals.', 'dn-burst-funnel-stats' ) ),
-		'paid_balance'      => $card( __( 'Paid / Balance', 'dn-burst-funnel-stats' ), 'money', dn_bfs_dash_money( $cur['paid'] ) . ' / ' . dn_bfs_dash_money( $cur['balance'] ), '', $has_prev ? dn_bfs_dash_money( $was( 'paid' ) ) : '', dn_bfs_dash_change( $summary, 'paid' ), __( 'By default, paid = processing and completed orders, net of refunds, and balance = pending and on-hold orders.', 'dn-burst-funnel-stats' ) ),
+		'sales_tip'         => $card( 'sales_tip', 'revenue', __( 'Sales / tip', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['revenue'] ), sprintf( __( 'Tip: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['tips'] ) ), $has_prev ? dn_bfs_dash_money( $was( 'revenue' ) ) : '', __( 'Sales are net of refunds; tips are gross fee totals.', 'dn-burst-funnel-stats' ) ),
+		'paid_balance'      => $card( 'paid_balance', 'paid', __( 'Paid / balance', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['paid'] ) . ' / ' . dn_bfs_dash_money( $cur['balance'] ), '', $has_prev ? dn_bfs_dash_money( $was( 'paid' ) ) : '', __( 'By default, paid = processing and completed orders, net of refunds, and balance = pending and on-hold orders.', 'dn-burst-funnel-stats' ) ),
 	);
 }
 

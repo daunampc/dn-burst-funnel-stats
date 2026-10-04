@@ -184,33 +184,20 @@ function dn_bfs_dash_url( $tab, $range, $filters ) {
 	}, $args ), admin_url( 'admin.php' ) );
 }
 
+/**
+ * Compact data-status labels for the toolbar: "Oct 3" and "9:00" (the next run
+ * also shows its date when it is not today).
+ */
 function dn_bfs_dash_status_labels() {
 	$last = (string) get_option( 'dnbfs_last_aggregated_date', '' );
 	$next = wp_next_scheduled( 'dnbfs_aggregate' );
+	$time = (string) get_option( 'time_format' );
+	$same = $next && wp_date( 'Y-m-d', $next ) === wp_date( 'Y-m-d', dn_bfs_now() );
 
 	return array(
-		'last' => '' !== $last && dn_bfs_valid_date_string( $last ) ? wp_date( get_option( 'date_format' ), ( new DateTimeImmutable( $last . ' 12:00:00', wp_timezone() ) )->getTimestamp() ) : __( 'Not yet', 'dn-burst-funnel-stats' ),
-		'next' => $next ? wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $next ) : __( 'Not scheduled', 'dn-burst-funnel-stats' ),
+		'last' => '' !== $last && dn_bfs_valid_date_string( $last ) ? dn_bfs_dash_date_label( $last ) : __( 'Not yet', 'dn-burst-funnel-stats' ),
+		'next' => $next ? wp_date( $same ? $time : 'M j ' . $time, $next ) : __( 'Not scheduled', 'dn-burst-funnel-stats' ),
 	);
-}
-
-function dn_bfs_dash_icon( $icon ) {
-	$map = array(
-		'eye'      => '◉',
-		'cart'     => '🛒',
-		'checkout' => '🛍',
-		'orders'   => '⮂',
-		'box'      => '⬢',
-		'check'    => '◔',
-		'dollar'   => '$',
-		'money'    => '$',
-		'product'  => '◫',
-		'layers'   => '▤',
-		'user'     => '☺',
-		'clock'    => '◷',
-	);
-
-	return isset( $map[ $icon ] ) ? $map[ $icon ] : '•';
 }
 
 function dn_bfs_dash_chart_series_total( $series ) {
@@ -375,41 +362,94 @@ function dn_bfs_dash_render_chart_panel( $title, $type, $data ) {
 	<?php
 }
 
+/**
+ * Pill classes: direction (is-up / is-down) plus color (is-good / is-bad),
+ * inverted for lower-is-better metrics; is-flat when unchanged or not compared.
+ */
+function dn_bfs_dash_trend_class( $card ) {
+	$trend = isset( $card['trend'] ) ? (string) $card['trend'] : '';
+
+	if ( ! in_array( $trend, array( 'up', 'down' ), true ) ) {
+		return 'is-flat';
+	}
+
+	$good = ( 'up' === $trend ) !== ! empty( $card['lower_is_better'] );
+
+	return 'is-' . $trend . ' ' . ( $good ? 'is-good' : 'is-bad' );
+}
+
+function dn_bfs_dash_hex_rgb( $hex ) {
+	$hex = ltrim( (string) $hex, '#' );
+
+	if ( ! preg_match( '/^[0-9a-f]{6}$/i', $hex ) ) {
+		return '34, 113, 177';
+	}
+
+	return implode( ', ', array_map( 'hexdec', str_split( $hex, 2 ) ) );
+}
+
 function dn_bfs_dash_render_card( $key, $card, $compare_label, $hidden ) {
-	$main     = (string) $card['main'];
-	$is_large = strlen( wp_strip_all_tags( $main ) ) <= 8;
+	$accent = isset( $card['accent'] ) ? (string) $card['accent'] : '#2271b1';
+	$style  = sprintf( '--dn-card-accent: %1$s; --dn-card-rgb: %2$s;', $accent, dn_bfs_dash_hex_rgb( $accent ) );
+	$trend  = isset( $card['trend'] ) ? (string) $card['trend'] : '';
+	$arrows = array(
+		'up'   => '&#9650;',
+		'down' => '&#9660;',
+	);
 	?>
-	<div class="dn-burst-card<?php echo $hidden ? ' is-hidden' : ''; ?>" data-dn-card="<?php echo esc_attr( $key ); ?>" title="<?php echo esc_attr( $card['help'] ); ?>">
+	<div class="dn-burst-card<?php echo $hidden ? ' is-hidden' : ''; ?>" data-dn-card="<?php echo esc_attr( $key ); ?>" style="<?php echo esc_attr( $style ); ?>" title="<?php echo esc_attr( $card['help'] ); ?>">
 		<label class="dn-burst-card-toggle">
 			<input type="checkbox" data-dn-card-visible <?php checked( ! $hidden ); ?> />
 			<span class="screen-reader-text"><?php esc_html_e( 'Show this card', 'dn-burst-funnel-stats' ); ?></span>
 		</label>
-		<div class="dn-burst-card-icon"><?php echo esc_html( dn_bfs_dash_icon( $card['icon'] ) ); ?></div>
-		<h3 class="dn-burst-card-title"><?php echo esc_html( $card['title'] ); ?></h3>
+		<span class="dn-burst-card-handle dashicons dashicons-move" aria-hidden="true"></span>
+		<div class="dn-burst-card-head">
+			<h3 class="dn-burst-card-title"><?php echo esc_html( $card['title'] ); ?></h3>
+			<span class="dn-burst-card-icon" aria-hidden="true"><span class="dashicons dashicons-<?php echo esc_attr( $card['icon'] ); ?>"></span></span>
+		</div>
 		<div class="dn-burst-main-line">
-			<div class="dn-burst-main <?php echo $is_large ? 'is-large' : ''; ?>"><?php echo dn_bfs_dash_kses_money( $main ); ?></div>
+			<div class="dn-burst-main"><?php echo dn_bfs_dash_kses_money( $card['main'] ); ?></div>
 			<?php if ( '' !== $card['secondary'] ) : ?>
 				<div class="dn-burst-secondary"><?php echo dn_bfs_dash_kses_money( $card['secondary'] ); ?></div>
 			<?php endif; ?>
-			<?php if ( '' !== $card['change'] ) : ?>
-				<span class="dn-burst-change <?php echo 0 === strpos( $card['change'], '-' ) ? 'is-down' : 'is-up'; ?>"><?php echo esc_html( $card['change'] ); ?></span>
-			<?php endif; ?>
 		</div>
-		<?php if ( '' !== $card['compare'] ) : ?>
-			<div class="dn-burst-compare"><strong><?php echo dn_bfs_dash_kses_money( $card['compare'] ); ?></strong> <?php echo esc_html( $compare_label ); ?></div>
+		<?php if ( '' !== $compare_label ) : ?>
+			<div class="dn-burst-card-foot">
+				<span class="dn-burst-change <?php echo esc_attr( dn_bfs_dash_trend_class( $card ) ); ?>">
+					<?php if ( isset( $arrows[ $trend ] ) ) : ?>
+						<span class="dn-burst-change-arrow" aria-hidden="true"><?php echo $arrows[ $trend ]; // phpcs:ignore WordPress.Security.EscapeOutput -- fixed entity. ?></span>
+					<?php endif; ?>
+					<?php echo esc_html( '' !== $card['change'] ? ltrim( $card['change'], '+-' ) : '0%' ); ?>
+				</span>
+				<?php /* translators: 1: comparison label such as "vs. Previous year", 2: previous value. */ ?>
+				<span class="dn-burst-compare"><?php echo dn_bfs_dash_kses_money( sprintf( __( '%1$s: %2$s', 'dn-burst-funnel-stats' ), esc_html( $compare_label ), '' !== $card['compare'] ? $card['compare'] : '&ndash;' ) ); ?></span>
+			</div>
 		<?php endif; ?>
 	</div>
 	<?php
+}
+
+/**
+ * Full date-range text for the compact date button tooltip.
+ */
+function dn_bfs_dash_date_tooltip( $range ) {
+	$text = $range['current_label'] . ' (' . $range['current_range_label'] . ')';
+
+	if ( 'none' !== $range['compare'] ) {
+		$text .= ' · ' . $range['compare_label'] . ' (' . $range['previous_range_label'] . ')';
+	}
+
+	return $text;
 }
 
 function dn_bfs_dash_render_date_picker( $range, $tab ) {
 	$presets = dn_bfs_get_date_presets();
 	?>
 	<div class="dn-burst-date-control" data-dn-date-control>
-		<button type="button" class="button dn-burst-date-toggle" data-dn-date-toggle>
-			<?php /* translators: 1: preset label, 2: formatted date range. */ ?>
-			<span class="dn-burst-date-title"><?php echo esc_html( sprintf( __( '%1$s (%2$s)', 'dn-burst-funnel-stats' ), $range['current_label'], $range['current_range_label'] ) ); ?></span>
-			<span class="dn-burst-date-compare" <?php echo 'none' === $range['compare'] ? 'hidden' : ''; ?>><?php echo esc_html( 'none' === $range['compare'] ? '' : $range['compare_label'] . ' (' . $range['previous_range_label'] . ')' ); ?></span>
+		<button type="button" class="button dn-burst-date-toggle" data-dn-date-toggle title="<?php echo esc_attr( dn_bfs_dash_date_tooltip( $range ) ); ?>" aria-label="<?php echo esc_attr( dn_bfs_dash_date_tooltip( $range ) ); ?>">
+			<span class="dashicons dashicons-calendar-alt" aria-hidden="true"></span>
+			<span class="dn-burst-date-title"><?php echo esc_html( $range['current_label'] ); ?></span>
+			<span class="dn-burst-date-compare" <?php echo 'none' === $range['compare'] ? 'hidden' : ''; ?>><?php echo esc_html( 'none' === $range['compare'] ? '' : $range['compare_label'] ); ?></span>
 		</button>
 		<form method="get" class="dn-burst-date-popover" data-dn-date-popover hidden>
 			<input type="hidden" name="page" value="dn-burst-funnel-stats" />
@@ -446,18 +486,13 @@ function dn_bfs_dash_render_data_status() {
 	$labels = dn_bfs_dash_status_labels();
 	?>
 	<div class="dn-burst-data-status" data-dn-status-panel>
-		<div class="dn-burst-data-status-card">
-			<div class="dn-burst-data-status-item">
-				<span><?php esc_html_e( 'Aggregated through', 'dn-burst-funnel-stats' ); ?></span>
-				<strong data-dn-last-update><?php echo esc_html( $labels['last'] ); ?></strong>
-			</div>
-			<div class="dn-burst-data-status-item">
-				<span><?php esc_html_e( 'Next update', 'dn-burst-funnel-stats' ); ?></span>
-				<strong data-dn-next-update><?php echo esc_html( $labels['next'] ); ?></strong>
-			</div>
-			<button type="button" class="button dn-burst-data-status-button" data-dn-update-now><?php esc_html_e( 'Update now', 'dn-burst-funnel-stats' ); ?></button>
-		</div>
-		<div class="dn-burst-status-message" data-dn-status-message aria-live="polite"></div>
+		<span class="dn-burst-data-status-text">
+			<span class="dn-burst-data-status-item"><?php esc_html_e( 'Updated', 'dn-burst-funnel-stats' ); ?> <strong data-dn-last-update><?php echo esc_html( $labels['last'] ); ?></strong></span>
+			<span class="dn-burst-data-status-sep" aria-hidden="true">&middot;</span>
+			<span class="dn-burst-data-status-item"><?php esc_html_e( 'Next', 'dn-burst-funnel-stats' ); ?> <strong data-dn-next-update><?php echo esc_html( $labels['next'] ); ?></strong></span>
+		</span>
+		<button type="button" class="button button-small dn-burst-data-status-button" data-dn-update-now><?php esc_html_e( 'Update now', 'dn-burst-funnel-stats' ); ?></button>
+		<span class="dn-burst-status-message" data-dn-status-message aria-live="polite"></span>
 	</div>
 	<?php
 }
@@ -466,12 +501,27 @@ function dn_bfs_dash_render_online_badge() {
 	$realtime = dn_bfs_report_realtime();
 	?>
 	<div class="dn-burst-online-wrap">
-		<button type="button" class="dn-burst-topbar-action dn-burst-online" data-dn-online aria-expanded="false">
+		<button type="button" class="dn-burst-online" data-dn-online aria-expanded="false">
 			<span class="dn-burst-online-dot" aria-hidden="true"></span>
 			<strong data-dn-online-count><?php echo esc_html( number_format_i18n( $realtime['online'] ) ); ?></strong>
-			<span><?php esc_html_e( 'online now', 'dn-burst-funnel-stats' ); ?></span>
+			<span><?php esc_html_e( 'online', 'dn-burst-funnel-stats' ); ?></span>
 		</button>
 		<div class="dn-burst-online-popover" data-dn-online-popover hidden></div>
+	</div>
+	<?php
+}
+
+/**
+ * Customize-cards controls. They live in the page toolbar and are only shown
+ * on the Overview tab (admin.js toggles them on tab switches).
+ */
+function dn_bfs_dash_render_cards_toolbar( $tab ) {
+	?>
+	<div class="dn-burst-cards-toolbar" data-dn-cards-toolbar<?php echo 'overview' === $tab ? '' : ' hidden'; ?>>
+		<button type="button" class="button button-small" data-dn-cards-edit><span class="dashicons dashicons-admin-generic" aria-hidden="true"></span> <?php esc_html_e( 'Customize cards', 'dn-burst-funnel-stats' ); ?></button>
+		<button type="button" class="button button-small button-primary" data-dn-cards-save hidden><?php esc_html_e( 'Save cards', 'dn-burst-funnel-stats' ); ?></button>
+		<button type="button" class="button button-small" data-dn-cards-cancel hidden><?php esc_html_e( 'Cancel', 'dn-burst-funnel-stats' ); ?></button>
+		<button type="button" class="button-link" data-dn-cards-reset hidden><?php esc_html_e( 'Reset to default', 'dn-burst-funnel-stats' ); ?></button>
 	</div>
 	<?php
 }
@@ -480,7 +530,7 @@ function dn_bfs_dash_render_filter_bar( $filters ) {
 	$labels = dn_bfs_dash_dimension_labels();
 	?>
 	<div class="dn-burst-filter-bar" data-dn-filter-bar>
-		<span class="dn-burst-toolbar-label"><?php esc_html_e( 'Filters:', 'dn-burst-funnel-stats' ); ?></span>
+		<span class="screen-reader-text"><?php esc_html_e( 'Filters:', 'dn-burst-funnel-stats' ); ?></span>
 		<span class="dn-burst-filter-chips" data-dn-filter-chips>
 			<?php foreach ( $filters as $dimension => $value ) : ?>
 				<span class="dn-burst-chip" data-dn-filter-dim="<?php echo esc_attr( $dimension ); ?>">
@@ -489,7 +539,7 @@ function dn_bfs_dash_render_filter_bar( $filters ) {
 				</span>
 			<?php endforeach; ?>
 		</span>
-		<button type="button" class="button button-small" data-dn-filter-toggle><?php esc_html_e( 'Add filter', 'dn-burst-funnel-stats' ); ?></button>
+		<button type="button" class="button button-small dn-burst-filter-add" data-dn-filter-toggle><span class="dashicons dashicons-filter" aria-hidden="true"></span> <?php esc_html_e( 'Add filter', 'dn-burst-funnel-stats' ); ?></button>
 		<form class="dn-burst-filter-popover" data-dn-filter-form hidden>
 			<label>
 				<span><?php esc_html_e( 'Dimension', 'dn-burst-funnel-stats' ); ?></span>
@@ -525,17 +575,6 @@ function dn_bfs_dash_overview_html( $range, $filters ) {
 
 	ob_start();
 	?>
-	<div class="dn-burst-cards-toolbar">
-		<button type="button" class="button" data-dn-cards-edit><?php esc_html_e( 'Customize cards', 'dn-burst-funnel-stats' ); ?></button>
-		<button type="button" class="button button-primary" data-dn-cards-save hidden><?php esc_html_e( 'Save cards', 'dn-burst-funnel-stats' ); ?></button>
-		<button type="button" class="button" data-dn-cards-cancel hidden><?php esc_html_e( 'Cancel', 'dn-burst-funnel-stats' ); ?></button>
-		<button type="button" class="button-link" data-dn-cards-reset hidden><?php esc_html_e( 'Reset to default', 'dn-burst-funnel-stats' ); ?></button>
-	</div>
-	<?php
-	if ( $summary['estimated'] ) {
-		echo wp_kses_post( dn_bfs_dash_estimate_note() );
-	}
-	?>
 	<div class="dn-burst-grid" data-dn-cards>
 		<?php
 		foreach ( $order as $key ) {
@@ -543,6 +582,11 @@ function dn_bfs_dash_overview_html( $range, $filters ) {
 		}
 		?>
 	</div>
+	<?php
+	if ( $summary['estimated'] ) {
+		echo wp_kses_post( dn_bfs_dash_estimate_note() );
+	}
+	?>
 	<?php if ( is_wp_error( $charts ) ) : ?>
 		<?php echo wp_kses_post( dn_bfs_dash_notice( $charts->get_error_message() ) ); ?>
 	<?php else : ?>
@@ -896,16 +940,17 @@ function dn_bfs_dash_render_page() {
 		}
 		?>
 		<div class="dn-burst-dashboard-toolbar">
-			<div class="dn-burst-dashboard-toolbar-section dn-burst-date-range-control">
-				<div class="dn-burst-toolbar-label"><?php esc_html_e( 'Date range:', 'dn-burst-funnel-stats' ); ?></div>
+			<div class="dn-burst-dashboard-toolbar-section dn-burst-toolbar-start">
+				<span class="screen-reader-text"><?php esc_html_e( 'Date range:', 'dn-burst-funnel-stats' ); ?></span>
 				<?php dn_bfs_dash_render_date_picker( $range, $tab ); ?>
+				<?php dn_bfs_dash_render_filter_bar( $filters ); ?>
 			</div>
-			<div class="dn-burst-dashboard-toolbar-section dn-burst-data-status-control">
-				<div class="dn-burst-toolbar-label"><?php esc_html_e( 'Data status:', 'dn-burst-funnel-stats' ); ?></div>
+			<div class="dn-burst-dashboard-toolbar-section dn-burst-toolbar-end">
+				<span class="screen-reader-text"><?php esc_html_e( 'Data status:', 'dn-burst-funnel-stats' ); ?></span>
 				<?php dn_bfs_dash_render_data_status(); ?>
+				<?php dn_bfs_dash_render_cards_toolbar( $tab ); ?>
 			</div>
 		</div>
-		<?php dn_bfs_dash_render_filter_bar( $filters ); ?>
 		<div class="dn-burst-dashboard-content">
 			<nav class="nav-tab-wrapper dn-burst-tabs" aria-label="<?php echo esc_attr__( 'Dashboard tabs', 'dn-burst-funnel-stats' ); ?>">
 				<?php foreach ( $tabs as $key => $definition ) : ?>
