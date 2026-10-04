@@ -29,18 +29,6 @@ function dn_bfs_api_limit_default() {
 	return 25;
 }
 
-function dn_bfs_api_compare_modes() {
-	return array( 'none', 'previous_period', 'previous_year' );
-}
-
-function dn_bfs_api_default_metrics() {
-	return array( 'sessions', 'orders', 'revenue' );
-}
-
-function dn_bfs_api_metric_names() {
-	return array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() );
-}
-
 function dn_bfs_api_cache_ttl() {
 	return (int) apply_filters( 'dn_bfs_api_cache_ttl', 60 );
 }
@@ -118,7 +106,7 @@ function dn_bfs_api_breakdown_params( $query ) {
 
 	$orderby = dn_bfs_api_query_text( $query, 'orderby' );
 
-	if ( '' !== $orderby && ! in_array( $orderby, dn_bfs_api_metric_names(), true ) ) {
+	if ( '' !== $orderby && ! in_array( $orderby, dn_bfs_metric_names(), true ) ) {
 		/* translators: %s: metric name. */
 		return dn_bfs_request_error( 'invalid_orderby', sprintf( __( 'Cannot sort by %s.', 'dn-burst-funnel-stats' ), $orderby ) );
 	}
@@ -242,7 +230,7 @@ function dn_bfs_api_endpoint_meta( $params, $key, $now ) {
 				'scopes'     => $key['scopes'],
 				'rate_limit' => $key['rate_limit'],
 			),
-			'metrics'              => dn_bfs_api_metric_names(),
+			'metrics'              => dn_bfs_metric_names(),
 			'dimensions'           => dn_bfs_report_dimensions(),
 			'filters'              => dn_bfs_filter_dimensions(),
 			'max_range_days'       => dn_bfs_api_max_range_days(),

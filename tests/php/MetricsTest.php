@@ -115,4 +115,12 @@ class MetricsTest extends TestCase {
 			$this->assertSame( 'd', dn_bfs_dim_key( 'Đ' ) );
 		}
 	}
+
+	public function test_request_vocabulary() {
+		$this->assertSame( array( 'none', 'previous_period', 'previous_year' ), dn_bfs_compare_modes() );
+		$this->assertSame( array( 'sessions', 'orders', 'revenue' ), dn_bfs_default_metrics() );
+		$this->assertSame( array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() ), dn_bfs_metric_names() );
+		$this->assertContains( 'conversion_rate', dn_bfs_metric_names() );
+		$this->assertSame( array(), array_diff( dn_bfs_default_metrics(), dn_bfs_metric_names() ) );
+	}
 }

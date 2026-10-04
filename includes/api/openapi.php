@@ -83,7 +83,7 @@ function dn_bfs_api_openapi_document() {
 	$string  = array( 'type' => 'string' );
 	$integer = array( 'type' => 'integer' );
 	$numbers = array( 'type' => 'object', 'additionalProperties' => array( 'type' => 'number' ) );
-	$metrics = dn_bfs_api_metric_names();
+	$metrics = dn_bfs_metric_names();
 	$period  = array( 'type' => 'object', 'nullable' => true, 'properties' => array( 'start' => $date, 'end' => $date ) );
 	$range   = array(
 		dn_bfs_api_openapi_param( 'start', 'First day, YYYY-MM-DD in the store timezone.', $date, true ),
@@ -154,7 +154,7 @@ function dn_bfs_api_openapi_document() {
 				'get' => dn_bfs_api_openapi_operation(
 					'Totals for a date range, with an optional comparison',
 					'stats:read',
-					array_merge( $range, array( dn_bfs_api_openapi_param( 'compare', 'Comparison period.', array( 'type' => 'string', 'enum' => dn_bfs_api_compare_modes(), 'default' => 'none' ) ) ) ),
+					array_merge( $range, array( dn_bfs_api_openapi_param( 'compare', 'Comparison period.', array( 'type' => 'string', 'enum' => dn_bfs_compare_modes(), 'default' => 'none' ) ) ) ),
 					array(
 						'type'       => 'object',
 						'properties' => array(
@@ -170,7 +170,7 @@ function dn_bfs_api_openapi_document() {
 				'get' => dn_bfs_api_openapi_operation(
 					'Daily values per metric',
 					'stats:read',
-					array_merge( $range, array( dn_bfs_api_openapi_param( 'metrics', 'Comma-separated metrics: ' . implode( ', ', $metrics ) . '.', array( 'type' => 'string', 'default' => implode( ',', dn_bfs_api_default_metrics() ) ) ) ) ),
+					array_merge( $range, array( dn_bfs_api_openapi_param( 'metrics', 'Comma-separated metrics: ' . implode( ', ', $metrics ) . '.', array( 'type' => 'string', 'default' => implode( ',', dn_bfs_default_metrics() ) ) ) ) ),
 					array(
 						'type'       => 'object',
 						'properties' => array(

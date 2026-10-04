@@ -40,7 +40,7 @@ function dn_bfs_parse_range( $params, $max_days = 731 ) {
 		return dn_bfs_request_error( 'invalid_period', __( 'Unknown date range.', 'dn-burst-funnel-stats' ) );
 	}
 
-	if ( ! in_array( $compare, dn_bfs_api_compare_modes(), true ) ) {
+	if ( ! in_array( $compare, dn_bfs_compare_modes(), true ) ) {
 		return dn_bfs_request_error( 'invalid_compare', __( 'Unknown comparison mode.', 'dn-burst-funnel-stats' ) );
 	}
 
@@ -101,10 +101,10 @@ function dn_bfs_parse_metrics( $value ) {
 	$metrics = array_filter( array_map( 'trim', is_array( $value ) ? array_map( 'strval', $value ) : explode( ',', (string) $value ) ), 'strlen' );
 
 	if ( empty( $metrics ) ) {
-		return dn_bfs_api_default_metrics();
+		return dn_bfs_default_metrics();
 	}
 
-	$allowed = dn_bfs_api_metric_names();
+	$allowed = dn_bfs_metric_names();
 
 	foreach ( $metrics as $metric ) {
 		if ( ! in_array( $metric, $allowed, true ) ) {

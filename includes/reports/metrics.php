@@ -126,6 +126,18 @@ function dn_bfs_derived_metric_names() {
 	return array( 'returning_visitors', 'bounce_rate', 'avg_duration', 'pages_per_session', 'conversion_rate', 'aov', 'aoi' );
 }
 
+function dn_bfs_compare_modes() {
+	return array( 'none', 'previous_period', 'previous_year' );
+}
+
+function dn_bfs_default_metrics() {
+	return array( 'sessions', 'orders', 'revenue' );
+}
+
+function dn_bfs_metric_names() {
+	return array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() );
+}
+
 function dn_bfs_derive_metrics( $m ) {
 	$sessions = (int) $m['sessions'];
 	$visitors = (int) $m['visitors'];
