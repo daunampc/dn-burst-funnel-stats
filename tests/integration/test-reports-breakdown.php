@@ -147,6 +147,7 @@ dn_bfs_it(
 		dn_bfs_it_seed_pageview( $other, '/cart/', $now - 100 );
 		dn_bfs_it_seed_session( array( 'started_at' => $now - 3600, 'last_activity' => $now - 1000 ) );
 		dn_bfs_it_seed_session( array( 'started_at' => $now - 50, 'last_activity' => $now - 50, 'is_spam' => 1 ) );
+		dn_bfs_it_seed_session( array( 'started_at' => $now - 20, 'last_activity' => $now - 20, 'pageviews' => 0 ) );
 
 		$realtime = dn_bfs_report_realtime( $now );
 

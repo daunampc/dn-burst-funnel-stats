@@ -415,7 +415,7 @@ function dn_bfs_report_realtime( $now = null ) {
 	$sessions  = dn_bfs_table( 'sessions' );
 	$pageviews = dn_bfs_table( 'pageviews' );
 
-	$online = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$sessions} WHERE last_activity >= %d AND is_spam = 0", $since ) );
+	$online = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$sessions} WHERE last_activity >= %d AND is_spam = 0 AND pageviews > 0", $since ) );
 
 	$pages = $wpdb->get_results(
 		$wpdb->prepare(
@@ -435,7 +435,7 @@ function dn_bfs_report_realtime( $now = null ) {
 
 	$channels = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT channel, COUNT(*) AS visitors FROM {$sessions} WHERE last_activity >= %d AND is_spam = 0 GROUP BY channel ORDER BY visitors DESC, channel ASC LIMIT 10",
+			"SELECT channel, COUNT(*) AS visitors FROM {$sessions} WHERE last_activity >= %d AND is_spam = 0 AND pageviews > 0 GROUP BY channel ORDER BY visitors DESC, channel ASC LIMIT 10",
 			$since
 		),
 		ARRAY_A
