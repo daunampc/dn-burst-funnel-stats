@@ -180,26 +180,110 @@ dn_bfs_it(
 	}
 );
 
+/**
+ * Runs $callback as if a persistent object cache were installed (the API
+ * response cache is only used then). Transients then live in the runtime cache.
+ */
+function dn_bfs_it_with_object_cache( $callback ) {
+	$previous = wp_using_ext_object_cache( true );
+
+	try {
+		$callback();
+	} finally {
+		// The global starts as null in WP-CLI, and passing null would not reset it.
+		wp_using_ext_object_cache( (bool) $previous );
+		wp_cache_flush();
+	}
+}
+
+function dn_bfs_it_api_cache_rows() {
+	global $wpdb;
+
+	return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( '_transient_dnbfs_api_c_' ) . '%' ) );
+}
+
 dn_bfs_it_today(
-	'stats responses are cached per endpoint and parameters; realtime is not; purge clears the cache',
+	'with a persistent object cache stats responses are cached per endpoint and parameters; realtime is not; purge clears the cache',
+	function () {
+		dn_bfs_it_with_object_cache(
+			function () {
+				$created = dn_bfs_it_api_key();
+				$today   = dn_bfs_it_api_seed_today();
+				$query   = array( 'start' => $today, 'end' => $today );
+
+				dn_bfs_assert_same( 2, dn_bfs_it_api_get( 'stats/summary', $query, $created['key'] )->get_data()['data']['current']['sessions'] );
+				dn_bfs_assert_same( 2, dn_bfs_it_api_get( 'stats/realtime', array(), $created['key'] )->get_data()['data']['online'] );
+
+				$extra = dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_now() - 30 ) );
+				dn_bfs_it_seed_pageview( $extra, '/', dn_bfs_now() - 30 );
+
+				dn_bfs_assert_same( 2, dn_bfs_it_api_get( 'stats/summary', $query, $created['key'] )->get_data()['data']['current']['sessions'], 'cached' );
+				dn_bfs_assert_same( 3, dn_bfs_it_api_get( 'stats/summary', $query + array( 'compare' => 'previous_period' ), $created['key'] )->get_data()['data']['current']['sessions'], 'other parameters' );
+				dn_bfs_assert_same( 3, dn_bfs_it_api_get( 'stats/funnel', $query, $created['key'] )->get_data()['data']['steps'][0]['value'], 'other endpoint' );
+				dn_bfs_assert_same( 3, dn_bfs_it_api_get( 'stats/realtime', array(), $created['key'] )->get_data()['data']['online'], 'realtime not cached' );
+				dn_bfs_assert_same( 0, dn_bfs_it_api_cache_rows(), 'nothing written to wp_options' );
+
+				dn_bfs_assert_same( true, dn_bfs_purge_all_data( 'DELETE' ) );
+				dn_bfs_assert_same( 0, dn_bfs_it_api_get( 'stats/summary', $query, $created['key'] )->get_data()['data']['current']['sessions'], 'purge clears the API cache' );
+			}
+		);
+	}
+);
+
+dn_bfs_it_today(
+	'without a persistent object cache API responses are not cached in wp_options',
 	function () {
 		$created = dn_bfs_it_api_key();
 		$today   = dn_bfs_it_api_seed_today();
 		$query   = array( 'start' => $today, 'end' => $today );
 
 		dn_bfs_assert_same( 2, dn_bfs_it_api_get( 'stats/summary', $query, $created['key'] )->get_data()['data']['current']['sessions'] );
-		dn_bfs_assert_same( 2, dn_bfs_it_api_get( 'stats/realtime', array(), $created['key'] )->get_data()['data']['online'] );
+		dn_bfs_assert_same( 0, dn_bfs_it_api_cache_rows(), 'no API cache transient' );
 
 		$extra = dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_now() - 30 ) );
 		dn_bfs_it_seed_pageview( $extra, '/', dn_bfs_now() - 30 );
 
-		dn_bfs_assert_same( 2, dn_bfs_it_api_get( 'stats/summary', $query, $created['key'] )->get_data()['data']['current']['sessions'], 'cached' );
-		dn_bfs_assert_same( 3, dn_bfs_it_api_get( 'stats/summary', $query + array( 'compare' => 'previous_period' ), $created['key'] )->get_data()['data']['current']['sessions'], 'other parameters' );
-		dn_bfs_assert_same( 3, dn_bfs_it_api_get( 'stats/funnel', $query, $created['key'] )->get_data()['data']['steps'][0]['value'], 'other endpoint' );
-		dn_bfs_assert_same( 3, dn_bfs_it_api_get( 'stats/realtime', array(), $created['key'] )->get_data()['data']['online'], 'realtime not cached' );
+		dn_bfs_assert_same( 3, dn_bfs_it_api_get( 'stats/summary', $query, $created['key'] )->get_data()['data']['current']['sessions'], 'fresh result' );
+	}
+);
 
-		dn_bfs_assert_same( true, dn_bfs_purge_all_data( 'DELETE' ) );
-		dn_bfs_assert_same( 0, dn_bfs_it_api_get( 'stats/summary', $query, $created['key'] )->get_data()['data']['current']['sessions'], 'purge clears the API cache' );
+dn_bfs_it_today(
+	'a cached stats response still enforces the key scope',
+	function () {
+		dn_bfs_it_with_object_cache(
+			function () {
+				$stats    = dn_bfs_it_api_key( array( 'scopes' => array( 'stats:read' ) ) );
+				$realtime = dn_bfs_it_api_key( array( 'name' => 'Realtime only', 'scopes' => array( 'realtime:read' ) ) );
+				$today    = dn_bfs_it_api_seed_today();
+				$query    = array( 'start' => $today, 'end' => $today );
+
+				dn_bfs_assert_same( 200, dn_bfs_it_api_get( 'stats/summary', $query, $stats['key'] )->get_status(), 'warm' );
+
+				$extra = dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_now() - 30 ) );
+				dn_bfs_it_seed_pageview( $extra, '/', dn_bfs_now() - 30 );
+				dn_bfs_assert_same( 2, dn_bfs_it_api_get( 'stats/summary', $query, $stats['key'] )->get_data()['data']['current']['sessions'], 'served from the cache' );
+
+				$denied = dn_bfs_it_api_get( 'stats/summary', $query, $realtime['key'] );
+				dn_bfs_assert_same( 403, $denied->get_status() );
+				dn_bfs_assert_same( array( 'code' => 'insufficient_scope', 'message' => $denied->get_data()['message'] ), $denied->get_data() );
+			}
+		);
+	}
+);
+
+dn_bfs_it(
+	'endpoint lookup ignores route case, so case variants are treated as the real endpoint',
+	function () {
+		dn_bfs_assert_same( 'stats/summary', dn_bfs_api_endpoint_from_route( '/dnbfs/v1/STATS/Summary' ) );
+		dn_bfs_assert_same( 'openapi.json', dn_bfs_api_endpoint_from_route( '/DNBFS/v1/OpenAPI.json/' ) );
+		dn_bfs_assert_same( '', dn_bfs_api_endpoint_from_route( '/dnbfs/v1/nope' ) );
+
+		rest_get_server();
+		dn_bfs_api_strip_cors( false, null, new WP_REST_Request( 'GET', '/dnbfs/v1/STATS/summary' ) );
+		dn_bfs_assert_true( false === has_filter( 'rest_pre_serve_request', 'rest_send_cors_headers' ), 'CORS stripped for a case variant' );
+		add_filter( 'rest_pre_serve_request', 'rest_send_cors_headers' );
+
+		dn_bfs_assert_same( 200, dn_bfs_it_api_get( 'STATS/realtime', array(), dn_bfs_it_api_key()['key'] )->get_status(), 'case variant answers' );
 	}
 );
 

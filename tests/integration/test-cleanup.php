@@ -67,3 +67,29 @@ dn_bfs_it_today(
 		dn_bfs_assert_same( 'salt', get_option( 'dnbfs_salt_' . $today ) );
 	}
 );
+
+dn_bfs_it(
+	'expired report and API cache transients are deleted; unexpired ones and other transients stay',
+	function () {
+		global $wpdb;
+
+		foreach ( array( 'dnbfs_api_c_old', 'dnbfs_api_c_new', 'dnbfs_r_old', 'dnbfs_r_new', 'other_old' ) as $name ) {
+			set_transient( $name, array( 1 ), 600 );
+		}
+
+		foreach ( array( 'dnbfs_api_c_old', 'dnbfs_r_old', 'other_old' ) as $name ) {
+			$wpdb->update( $wpdb->options, array( 'option_value' => time() - 10 ), array( 'option_name' => '_transient_timeout_' . $name ) );
+		}
+
+		dn_bfs_assert_same( 4, dn_bfs_purge_expired_cache_transients(), 'value + timeout rows of two transients' );
+
+		$left = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s ORDER BY option_name", '%' . $wpdb->esc_like( 'dnbfs_api_c_' ) . '%', '%' . $wpdb->esc_like( 'dnbfs_r_' ) . '%', '%' . $wpdb->esc_like( 'other_old' ) ) );
+		dn_bfs_assert_same(
+			array( '_transient_dnbfs_api_c_new', '_transient_dnbfs_r_new', '_transient_other_old', '_transient_timeout_dnbfs_api_c_new', '_transient_timeout_dnbfs_r_new', '_transient_timeout_other_old' ),
+			$left
+		);
+
+		delete_option( '_transient_other_old' );
+		delete_option( '_transient_timeout_other_old' );
+	}
+);

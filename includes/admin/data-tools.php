@@ -100,6 +100,8 @@ function dn_bfs_purge_all_data( $confirm ) {
 		delete_option( $option );
 	}
 
+	dn_bfs_bump_cache_generation();
+
 	foreach ( array( 'dnbfs_r_', 'dnbfs_api_c_' ) as $prefix ) {
 		$names = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( '_transient_' . $prefix ) . '%' ) );
 

@@ -45,6 +45,48 @@ function dn_bfs_purge_salts( $now ) {
 	return $removed;
 }
 
+/**
+ * Deletes expired report (dnbfs_r_) and API response (dnbfs_api_c_) transients
+ * from wp_options, value and timeout rows together, in bounded batches. Runs
+ * hourly with aggregation so these short-lived caches cannot pile up until
+ * WordPress's daily expired-transient sweep.
+ *
+ * @return int Rows deleted.
+ */
+function dn_bfs_purge_expired_cache_transients() {
+	global $wpdb;
+
+	$now   = time(); // Transient timeouts are stored against the real clock.
+	$total = 0;
+
+	foreach ( array( 'dnbfs_api_c_', 'dnbfs_r_' ) as $prefix ) {
+		$timeout_prefix = '_transient_timeout_' . $prefix;
+
+		for ( $batch = 0; $batch < 50; $batch++ ) {
+			$timeouts = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s AND option_value < %d LIMIT 1000", $wpdb->esc_like( $timeout_prefix ) . '%', $now ) );
+
+			if ( empty( $timeouts ) ) {
+				break;
+			}
+
+			$names = array();
+
+			foreach ( $timeouts as $timeout ) {
+				$names[] = $timeout;
+				$names[] = '_transient_' . substr( $timeout, strlen( '_transient_timeout_' ) );
+			}
+
+			$total += (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name IN (" . implode( ', ', array_fill( 0, count( $names ), '%s' ) ) . ')', $names ) );
+
+			if ( count( $timeouts ) < 1000 ) {
+				break;
+			}
+		}
+	}
+
+	return $total;
+}
+
 function dn_bfs_cleanup_run( $now = null ) {
 	global $wpdb;
 

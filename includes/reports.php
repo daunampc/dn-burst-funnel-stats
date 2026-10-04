@@ -17,6 +17,19 @@ function dn_bfs_report_cache_ttl() {
 	return (int) apply_filters( 'dn_bfs_report_cache_ttl', 60 );
 }
 
+/**
+ * Part of every report/API cache key. Purging data bumps it, which also
+ * invalidates entries held in a persistent object cache (those cannot be
+ * listed and deleted the way wp_options transients can).
+ */
+function dn_bfs_cache_generation() {
+	return (int) get_option( 'dnbfs_cache_generation', 0 );
+}
+
+function dn_bfs_bump_cache_generation() {
+	update_option( 'dnbfs_cache_generation', dn_bfs_cache_generation() + 1 );
+}
+
 function dn_bfs_report_raw_rows( $start, $end, $dimension, $filters ) {
 	$ttl = dn_bfs_report_cache_ttl();
 
@@ -24,7 +37,7 @@ function dn_bfs_report_raw_rows( $start, $end, $dimension, $filters ) {
 		return dn_bfs_raw_rows( $start, $end, $dimension, $filters );
 	}
 
-	$key    = 'dnbfs_r_' . md5( wp_json_encode( array( (int) $start, (int) floor( $end / $ttl ), $dimension, dn_bfs_sanitize_filters( $filters ) ) ) );
+	$key    = 'dnbfs_r_' . md5( wp_json_encode( array( dn_bfs_cache_generation(), (int) $start, (int) floor( $end / $ttl ), $dimension, dn_bfs_sanitize_filters( $filters ) ) ) );
 	$cached = get_transient( $key );
 
 	if ( is_array( $cached ) ) {

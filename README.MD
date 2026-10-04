@@ -49,7 +49,7 @@ Read-only statistics for your own servers, for example a NestJS backend. Create 
 * No CORS headers are sent: call the API from a server, never from a browser.
 * Each key has scopes (`stats:read`, `realtime:read`), optional allowed IPs (one IP or CIDR range per line) and a rate limit (default 60 requests per minute, counted atomically per key). Over the limit the API answers 429 with a `Retry-After` header.
 * The IP allow-list uses the connection address (`REMOTE_ADDR`). `CF-Connecting-IP` is trusted only when the connection comes from a Cloudflare range (filter `dn_bfs_api_cloudflare_ranges`). `X-Forwarded-For` is trusted only when `REMOTE_ADDR` is a trusted proxy (filter `dn_bfs_api_trusted_proxies`, empty by default); the right-most address that is not a trusted proxy is used. This is independent of the "Client IP source" tracking setting.
-* Successful statistics are cached for 60 seconds. Realtime is never cached.
+* With a persistent object cache (Redis, Memcached), successful statistics are cached for 60 seconds. Without one they are not cached as whole responses, so the database is not filled with one cache row per query; today's raw-data figures are still cached for 60 seconds, and expired cache rows are removed every hour. Realtime is never cached.
 
 Endpoints (all GET):
 

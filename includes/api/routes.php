@@ -66,7 +66,8 @@ add_action( 'rest_api_init', 'dn_bfs_api_register_routes' );
 
 function dn_bfs_api_endpoint_from_route( $route ) {
 	$prefix = '/' . dn_bfs_api_namespace() . '/';
-	$route  = untrailingslashit( (string) $route );
+	// Core matches routes case-insensitively, so "/dnbfs/v1/STATS/summary" reaches us too.
+	$route  = strtolower( untrailingslashit( (string) $route ) );
 
 	if ( 0 !== strpos( $route, $prefix ) ) {
 		return '';
@@ -399,8 +400,10 @@ function dn_bfs_api_rest_callback( WP_REST_Request $request ) {
 		return dn_bfs_api_error_response( $params );
 	}
 
-	$ttl       = $config['cache'] ? dn_bfs_api_cache_ttl() : 0;
-	$cache_key = 'dnbfs_api_c_' . md5( (string) wp_json_encode( array( $endpoint, $params ) ) );
+	// Without a persistent object cache every distinct parameter set would add
+	// wp_options rows, so only the report layer's own cache applies then.
+	$ttl       = $config['cache'] && wp_using_ext_object_cache() ? dn_bfs_api_cache_ttl() : 0;
+	$cache_key = 'dnbfs_api_c_' . md5( (string) wp_json_encode( array( dn_bfs_cache_generation(), $endpoint, $params ) ) );
 
 	if ( $ttl > 0 ) {
 		$cached = get_transient( $cache_key );

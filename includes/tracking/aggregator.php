@@ -471,6 +471,7 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 
 function dn_bfs_cron_aggregate() {
 	dn_bfs_aggregate_run();
+	dn_bfs_purge_expired_cache_transients();
 }
 add_action( 'dnbfs_aggregate', 'dn_bfs_cron_aggregate' );
 
