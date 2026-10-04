@@ -21,3 +21,28 @@ function dn_bfs_it_api_key( $overrides = array() ) {
 
 	return $created;
 }
+
+function dn_bfs_it_api_request( $route, $query = array(), $key = '', $via = 'bearer' ) {
+	$request = new WP_REST_Request( 'GET', '/dnbfs/v1/' . ltrim( $route, '/' ) );
+	$request->set_query_params( $query );
+
+	if ( '' !== $key ) {
+		if ( 'bearer' === $via ) {
+			$request->set_header( 'authorization', 'Bearer ' . $key );
+		} else {
+			$request->set_header( 'x_dnbfs_key', $key );
+		}
+	}
+
+	return $request;
+}
+
+function dn_bfs_it_error_pair( $result ) {
+	if ( ! is_wp_error( $result ) ) {
+		return array( 'ok', 200 );
+	}
+
+	$data = $result->get_error_data();
+
+	return array( $result->get_error_code(), is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0 );
+}
