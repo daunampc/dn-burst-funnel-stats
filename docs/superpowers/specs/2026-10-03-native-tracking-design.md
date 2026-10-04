@@ -185,7 +185,7 @@ Drop các bảng `dnbfs_*`; xóa option `dn_burst_funnel_stats_*`, `dnbfs_*`, `d
 
 ## 7. Lớp báo cáo (`reports.php`)
 
-API PHP duy nhất cho dashboard và REST:
+API PHP duy nhất cho dashboard (admin-ajax trong `includes/admin/ajax.php`) và REST công khai (Kế hoạch 4):
 - Mọi hàm nhận thêm `$filters` (mảng `dimension => value`, xem 8.3).
 - `dn_bfs_report_summary( $range, $filters )` → tổng các chỉ số + kỳ so sánh + % thay đổi.
 - `dn_bfs_report_timeseries( $range, $metrics, $filters )`.
@@ -289,7 +289,7 @@ includes/
   api/auth.php
   api/routes.php          (REST công khai)
   api/openapi.php
-  admin/routes.php        (REST nội bộ)
+  admin/ajax.php          (handler admin-ajax cho dashboard; REST công khai ở api/routes.php, Kế hoạch 4)
   admin/pages.php         (menu, nạp assets, render HTML)
   admin/dashboard-widget.php
   date-ranges.php

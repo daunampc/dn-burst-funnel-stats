@@ -298,24 +298,6 @@ function dn_bfs_ip_in_cidr( $ip, $cidr ) {
 	return ( $ip_bin[ $bytes ] & $mask ) === ( $range_bin[ $bytes ] & $mask );
 }
 
-function dn_bfs_is_ip_excluded( $ip = '' ) {
-	$ip = '' === $ip ? dn_bfs_get_client_ip() : trim( (string) $ip );
-
-	if ( '' === $ip || 'unknown' === $ip || false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
-		return false;
-	}
-
-	$settings = dn_bfs_get_tracking_settings();
-
-	foreach ( (array) $settings['excluded_ips'] as $rule ) {
-		if ( dn_bfs_ip_in_cidr( $ip, $rule ) ) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
 function dn_bfs_is_bot_user_agent( $user_agent, $custom = array() ) {
 	$user_agent = strtolower( trim( (string) $user_agent ) );
 
@@ -334,40 +316,6 @@ function dn_bfs_is_bot_user_agent( $user_agent, $custom = array() ) {
 	return false;
 }
 
-function dn_bfs_is_bot_request() {
-	$settings = dn_bfs_get_tracking_settings();
-
-	if ( empty( $settings['exclude_bots'] ) ) {
-		return false;
-	}
-
-	$user_agent = dn_bfs_get_current_user_agent();
-
-	if ( '' === $user_agent ) {
-		return true;
-	}
-
-	return dn_bfs_is_bot_user_agent( $user_agent, $settings['custom_bot_user_agents'] );
-}
-
-function dn_bfs_is_selected_page_request() {
-	$settings = dn_bfs_get_tracking_settings();
-
-	if ( 'selected' !== $settings['page_tracking_mode'] ) {
-		return true;
-	}
-
-	if ( is_page( array_map( 'absint', $settings['selected_page_ids'] ) ) ) {
-		return true;
-	}
-
-	if ( function_exists( 'is_product' ) && is_product() ) {
-		return true;
-	}
-
-	return false;
-}
-
 function dn_bfs_should_track_product( $product_id ) {
 	$settings   = dn_bfs_get_tracking_settings();
 	$product_id = absint( $product_id );
@@ -377,30 +325,4 @@ function dn_bfs_should_track_product( $product_id ) {
 	}
 
 	return in_array( $product_id, array_map( 'absint', $settings['selected_product_ids'] ), true );
-}
-
-function dn_bfs_should_track_request( $context = 'frontend', $args = array() ) {
-	$settings = dn_bfs_get_tracking_settings();
-
-	if ( empty( $settings['tracking_enabled'] ) ) {
-		return false;
-	}
-
-	if ( wp_doing_cron() || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
-		return false;
-	}
-
-	if ( is_admin() && ! wp_doing_ajax() ) {
-		return false;
-	}
-
-	if ( dn_bfs_is_ip_excluded( dn_bfs_get_client_ip() ) || dn_bfs_is_bot_request() ) {
-		return false;
-	}
-
-	if ( 'add_to_cart' === $context && ! empty( $args['product_id'] ) ) {
-		return dn_bfs_should_track_product( $args['product_id'] );
-	}
-
-	return dn_bfs_is_selected_page_request();
 }

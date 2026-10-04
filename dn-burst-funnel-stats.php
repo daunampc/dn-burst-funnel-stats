@@ -4,7 +4,7 @@
  * Plugin Name: DN Burst Funnel Stats
  * Plugin URI: https://github.com/daunampc/dn-burst-funnel-stats.git
  * Description: Funnel dashboard for WooCommerce with built-in visitor tracking and WooCommerce order metrics.
- * Version: 2.2.0
+ * Version: 3.0.0
  * Author: toshstack.dev
  * Author URI: https://toshstack.dev
  * Requires at least: 6.5
@@ -21,7 +21,7 @@ if (! defined('ABSPATH')) {
   exit;
 }
 
-define('DN_BURST_FUNNEL_STATS_VERSION', '2.2.0');
+define('DN_BURST_FUNNEL_STATS_VERSION', '3.0.0');
 define('DN_BURST_FUNNEL_STATS_FILE', __FILE__);
 define('DN_BURST_FUNNEL_STATS_PATH', plugin_dir_path(__FILE__));
 define('DN_BURST_FUNNEL_STATS_URL', plugin_dir_url(__FILE__));
@@ -32,7 +32,7 @@ define('DN_BURST_FUNNEL_STATS_URL', plugin_dir_url(__FILE__));
 define('DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats');
 
 define('DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '5');
+define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '6');
 
 /**
  * Load translations.
@@ -225,6 +225,34 @@ function dn_burst_funnel_stats_plugin_action_links($links)
 add_filter('plugin_action_links_' . DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME, 'dn_burst_funnel_stats_plugin_action_links');
 
 /**
+ * Remove options, transients and cron events left by the Burst-based dashboard.
+ *
+ * @return void
+ */
+function dn_bfs_migrate_legacy_cleanup()
+{
+  global $wpdb;
+
+  $patterns = array('dn\_atc\_%', '\_transient\_dn\_atc\_%', '\_transient\_timeout\_dn\_atc\_%', '\_transient\_dn\_bfs\_%', '\_transient\_timeout\_dn\_bfs\_%');
+
+  foreach ($patterns as $pattern) {
+    $names = $wpdb->get_col($wpdb->prepare("SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $pattern));
+
+    // delete_option() also clears the per-option object cache that a raw DELETE would leave stale.
+    foreach ((array) $names as $name) {
+      delete_option($name);
+    }
+  }
+
+  foreach (array('dn_bfs_data_last_changed', 'dn_burst_funnel_stats_last_refresh', 'dn_burst_funnel_stats_url_tracking_settings') as $option) {
+    delete_option($option);
+  }
+
+  wp_clear_scheduled_hook('dn_burst_funnel_stats_refresh_cache');
+  wp_cache_delete('alloptions', 'options');
+}
+
+/**
  * Store lightweight migration/schema metadata.
  *
  * @return void
@@ -239,16 +267,7 @@ function dn_burst_funnel_stats_maybe_migrate()
 
   update_option('dn_burst_funnel_stats_tracking_settings', dn_bfs_get_tracking_settings(), false);
 
-  if (false === get_option('dn_burst_funnel_stats_url_tracking_settings', false)) {
-    update_option(
-      'dn_burst_funnel_stats_url_tracking_settings',
-      array(
-        'default_group' => 'campaign',
-      ),
-      false
-    );
-  }
-
+  dn_bfs_migrate_legacy_cleanup();
   dn_bfs_install_schema();
 
   // Retry on the next load if dbDelta could not create every table.
