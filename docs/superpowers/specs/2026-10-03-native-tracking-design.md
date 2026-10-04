@@ -202,26 +202,21 @@ Nguồn: `dnbfs_daily` cho ngày đã qua; bảng thô cho hôm nay (cache 60 gi
 - Paid = đơn `processing` + `completed`, tính max(0, total − refunded). Balance = tổng đơn `pending` + `on-hold` (không cộng vào Paid).
 - Conversion rate = Orders / Visitors.
 
-## 8. Giao diện admin (React)
+## 8. Giao diện admin (PHP, nâng cấp giao diện cũ)
 
-### 8.1 Công nghệ
-- React + `@wordpress/components` + `@wordpress/data` + `@wordpress/api-fetch` + Chart.js; build bằng `@wordpress/scripts`.
-- Mã nguồn `src/admin/`, bundle ra `build/` (commit vào repo; cài plugin không cần Node). Nạp bằng `build/*.asset.php` (dependencies + version).
-- Máy dev không có Node: build chạy trong container `node:20` (`docker compose run --rm node npm run build`).
-- Mỗi trang admin chỉ in `<div id="dnbfs-app" data-page="dashboard|settings">`. React đồng bộ trạng thái lên URL (`tab`, `period`, `compare`, `start`, `end`, `filter`) để có thể đánh dấu/chia sẻ link.
-- Dữ liệu qua **REST nội bộ** `dnbfs/v1/admin/*` (cookie + nonce `wp_rest`), quyền `manage_options` (filter `dn_bfs_capability`). Dùng chung `reports.php` với API công khai.
-- Bỏ `assets/admin.js`, `assets/admin.css`, `includes/ajax.php` và phần render HTML của `dashboard.php`.
-- Menu admin chỉ còn **Funnel Stats → Dashboard** và **Settings** (Import/Export gộp vào Settings → Dữ liệu; bỏ trang URL Tracking riêng — đã có tab Ad URLs).
+Quyết định của chủ sản phẩm (2026-10-04): **không dùng React**. Trang admin render bằng PHP trong WordPress, giữ nền giao diện cũ (topbar, date picker, khung Data status, lưới thẻ, 4 biểu đồ canvas tự vẽ, nav tab) và nâng cấp. JS viết tay bằng jQuery, không có bước build.
 
-### 8.2 Dashboard — bố cục tab ngang
-- **Thanh trên**: date picker (11 preset + custom) và chọn so sánh; **bộ lọc chung** dạng chip (`Kênh`, `Source`, `Medium`, `Campaign`, `Thiết bị`, `Quốc gia`; ví dụ `Campaign: sale-10 ×`); badge số khách online (bấm mở panel realtime: số online, trang đang xem, nguồn); nút làm mới.
-- **Overview**:
-  - Lưới thẻ: Visitors, Pageviews, Sessions, Khách mới/quay lại, Bounce rate, Thời gian phiên TB, Trang/phiên, Product Views, Add To Cart (= Cart), Checkout, Orders/AOV, Items/AOI, Conversion Rate, Sales/Tip, Paid/Balance. Mỗi thẻ có giá trị kỳ so sánh và % thay đổi.
-  - Nút **Tùy chỉnh**: ẩn/hiện và kéo thả sắp xếp thẻ; lưu vào user meta `dnbfs_cards` (mỗi admin một cấu hình) qua `POST admin/preferences`; có "Khôi phục mặc định".
-  - Biểu đồ Sales/Orders theo ngày (2 trục), phễu Visitors → Product Views → ATC = Cart → Checkout → Orders, top 10 trang, top 10 campaign.
-- **Tab**: Pages (trang / trang vào / trang thoát), Sources (kênh / referrer / source / medium), Ad URLs (campaign / source / medium kèm phễu + doanh thu + CR), Products (views, ATC, tỷ lệ view→ATC, đơn, doanh thu), Devices (thiết bị / trình duyệt / HĐH), Locations (quốc gia / thành phố), Brands. Bảng sắp xếp được, phân trang phía server (25 dòng/trang).
-- **Drill-down**: bấm một dòng → panel trượt bên phải với biểu đồ theo ngày, phễu riêng, top nguồn, top thiết bị. Panel = bộ lọc chung áp riêng cho dòng đó; nút "Áp làm bộ lọc" áp cho toàn dashboard.
-- Trạng thái tải (skeleton), trạng thái rỗng, lỗi có nút Thử lại; giá trị `estimated` hiển thị ghi chú "ước tính".
+### 8.1 Kiến trúc
+- Menu **Funnel Stats → Dashboard** và **Settings** (gộp URL Tracking vào tab Ad URLs, Import/Export vào Settings → Dữ liệu).
+- Trang render bằng PHP lần đầu; chuyển tab, sắp xếp/phân trang bảng, panel chi tiết, lưu thẻ, khách online, "Update now" dùng `admin-ajax.php` (nonce `dn_bfs_admin`) trả HTML/JSON. Trạng thái khoảng ngày + bộ lọc đồng bộ lên URL (`dn_period`, `dn_compare`, `dn_start`, `dn_end`, `dn_filter[…]`, `dn_tab`).
+- Dữ liệu lấy từ `includes/reports.php`; quyền `manage_options` (filter `dn_bfs_capability`).
+
+### 8.2 Dashboard
+- **Thanh trên:** tiêu đề tab, badge khách online (bấm mở danh sách trang đang xem, tự làm mới 30 giây), date picker cũ, khung Data status ("Aggregated through", "Next update", nút "Update now" chạy aggregator).
+- **Bộ lọc chung** dạng chip dưới thanh công cụ (`Kênh`, `Source`, `Medium`, `Campaign`, `Thiết bị`, `Quốc gia`), có gợi ý giá trị.
+- **Overview:** 15 thẻ (Visitors, Pageviews, Sessions, Khách mới/quay lại, Bounce rate, Thời gian phiên TB, Trang/phiên, Product Views, Add To Cart (= Cart), Checkout, Orders/AOV, Items/AOI, Conversion Rate, Sales/Tip, Paid/Balance) theo kiểu thẻ cũ; nút **Tùy chỉnh** cho ẩn/hiện + kéo thả (jQuery UI Sortable), lưu user meta `dnbfs_cards`. 4 biểu đồ canvas cũ: Sales/Orders, Phễu (Visitors → Product views → Add to cart (= Cart) → Checkout → Orders), Conversion, Top campaigns theo doanh thu.
+- **Tab:** Overview, Pages (trang / trang vào / trang thoát), Sources (kênh / referrer / source / medium), Ad URLs (campaign / source / medium), Products, Brands, Countries (quốc gia / thành phố), Devices (thiết bị / trình duyệt / HĐH). Bảng sắp xếp, phân trang 25 dòng, ghi chú khi số liệu ước tính.
+- **Panel chi tiết:** bấm dòng có chiều lọc được → panel trượt bên phải (tóm tắt, biểu đồ Visitors/Orders theo ngày, phễu) + nút "Áp làm bộ lọc".
 
 ### 8.3 Ngữ nghĩa bộ lọc chung
 `dnbfs_daily` chỉ lưu từng dimension riêng lẻ, nên:
@@ -229,26 +224,11 @@ Nguồn: `dnbfs_daily` cho ngày đã qua; bảng thô cho hôm nay (cache 60 gi
 - **≥ 2 bộ lọc**, hoặc **bộ lọc + breakdown theo dimension khác** → truy vấn bảng thô; chỉ hợp lệ khi toàn bộ khoảng nằm trong thời hạn dữ liệu thô. Ngoài thời hạn: API trả `422 filter_out_of_retention` cho chỉ số traffic; chỉ số đơn hàng/doanh thu vẫn tính được từ sự kiện `order` (attribution ghi kèm). Giao diện hiển thị thông báo giải thích.
 - Bộ lọc là tham số `filter[dimension]=value` trên mọi endpoint báo cáo (nội bộ và công khai).
 
-### 8.4 Settings — danh sách nhóm dọc
-Mỗi nhóm một form riêng, nút Lưu riêng, validate tức thì, cảnh báo khi rời trang chưa lưu. Lưu qua `POST admin/settings/{group}`.
-
-| Nhóm | Cấu hình |
-|---|---|
-| Chung | Bật/tắt tracking, khoảng ngày mặc định, so sánh mặc định |
-| Tracking | Vai trò loại trừ, IP/CIDR loại trừ (báo dòng không hợp lệ), chế độ trang (tất cả/chọn) + chọn trang, chế độ sản phẩm (tất cả/chọn) + chọn sản phẩm, thời gian hết phiên (mặc định 30 phút), thời hạn cookie (mặc định 365 ngày), nguồn IP client (`auto` = CF-Connecting-IP khi có CF-Ray, `remote_addr`, `x_forwarded_for`, `x_real_ip`) |
-| Chống spam | Cửa sổ chống trùng sản phẩm (5 phút), bỏ qua F5 (10 giây), 4 ngưỡng giới hạn tần suất, từ khóa bot tự thêm, chặn UA rỗng, biểu đồ lượt bị chặn theo lý do 7 ngày |
-| WooCommerce | Ép chuyển đến trang Cart, trạng thái đơn tính Sales / Paid / Balance, từ khóa phí Tip |
-| GeoIP | Ưu tiên Cloudflare, license key MaxMind, trạng thái file (ngày cập nhật, dung lượng), nút "Cập nhật ngay" |
-| Dữ liệu | Số ngày giữ dữ liệu thô, tổng hợp lại khoảng ngày, dung lượng từng bảng, Export/Import Settings (JSON), xóa toàn bộ dữ liệu (gõ `DELETE` để xác nhận) |
-| API keys | Danh sách (tên, prefix, quyền, lần dùng cuối, trạng thái), tạo key trong modal (key hiện một lần + nút sao chép), sửa tên/quyền/IP/giới hạn, thu hồi; link `openapi.json` |
-| Hệ thống | Đèn xanh/vàng/đỏ: bảng đủ và đúng schema, cron aggregate/cleanup chạy trong 2 giờ/2 ngày gần nhất, test `/collect` (gọi loopback), tracker có trong HTML trang chủ, GeoIP sẵn sàng, phiên bản plugin/WC/PHP/MySQL |
+### 8.4 Settings (7 tab)
+Chung, Tracking, Chống spam, WooCommerce, GeoIP, Dữ liệu, Hệ thống — form PHP theo nhóm (`admin-post.php`), mỗi lần lưu gửi đủ khóa; license MaxMind luôn che; tab Dữ liệu có thống kê bảng, tổng hợp lại khoảng ngày, Export/Import settings, xóa toàn bộ dữ liệu (gõ `DELETE`); tab GeoIP có trạng thái + nút cập nhật; tab Hệ thống hiển thị các kiểm tra (bảng, schema, độ trễ tổng hợp, cron, endpoint `/collect`, tracker, GeoIP, file GeoIP công khai, proxy, phiên bản). Quản lý API key thuộc Kế hoạch 4.
 
 ### 8.5 Widget trên WP Dashboard
-- `wp_add_dashboard_widget`, render PHP (không nạp bundle React), chỉ hiện với người có quyền.
-- Nội dung: khách online, Visitors / Orders / Sales hôm nay so với hôm qua, link mở dashboard. Số online tự làm mới 30 giây qua `fetch` `admin/realtime`.
-
-### 8.6 REST nội bộ `dnbfs/v1/admin/*`
-`GET summary`, `GET timeseries`, `GET breakdown`, `GET funnel`, `GET realtime`, `GET filters/values?dimension=&search=` (gợi ý giá trị cho chip lọc), `GET|POST preferences`, `GET|POST settings/{group}`, `GET|POST|PATCH|DELETE api-keys`, `POST data/reaggregate`, `POST data/purge`, `GET data/export`, `POST data/import`, `POST geoip/update`, `GET system/status`.
+Render PHP: khách online, Visitors / Orders / Sales hôm nay so với hôm qua, link mở dashboard; số online tự làm mới 30 giây qua admin-ajax.
 
 ## 9. REST API công khai
 

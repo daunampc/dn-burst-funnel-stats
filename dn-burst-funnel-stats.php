@@ -121,6 +121,18 @@ function dn_burst_funnel_stats_load_reports()
 }
 
 /**
+ * Load admin modules (AJAX handlers run outside wp-admin screens, so load on every request).
+ *
+ * @return void
+ */
+function dn_burst_funnel_stats_load_admin()
+{
+  foreach (array('request') as $module) {
+    require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin/' . $module . '.php';
+  }
+}
+
+/**
  * Validate dependencies on plugin activation.
  *
  * @return void
@@ -261,6 +273,7 @@ function dn_burst_funnel_stats_bootstrap()
   dn_burst_funnel_stats_load_tracking();
   dn_burst_funnel_stats_load_reports();
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/date-ranges.php';
+  dn_burst_funnel_stats_load_admin();
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/dashboard.php';
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin-menu.php';
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/settings.php';
