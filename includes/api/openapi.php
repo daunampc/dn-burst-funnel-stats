@@ -19,8 +19,31 @@ function dn_bfs_api_openapi_param( $name, $description, $schema, $required = fal
 	);
 }
 
+function dn_bfs_api_openapi_error_response( $description, $codes, $headers = array() ) {
+	$response = array(
+		'description' => $description . ' Error codes: ' . implode( ', ', $codes ) . '.',
+		'content'     => array(
+			'application/json' => array(
+				'schema' => array(
+					'type'       => 'object',
+					'required'   => array( 'code', 'message' ),
+					'properties' => array(
+						'code'    => array( 'type' => 'string', 'enum' => $codes ),
+						'message' => array( 'type' => 'string' ),
+					),
+				),
+			),
+		),
+	);
+
+	if ( ! empty( $headers ) ) {
+		$response['headers'] = $headers;
+	}
+
+	return $response;
+}
+
 function dn_bfs_api_openapi_operation( $summary, $scope, $parameters, $data_schema ) {
-	$error     = array( '$ref' => '#/components/responses/Error' );
 	$responses = array(
 		'200' => array(
 			'description' => 'OK',
@@ -37,15 +60,15 @@ function dn_bfs_api_openapi_operation( $summary, $scope, $parameters, $data_sche
 				),
 			),
 		),
-		'401' => $error,
-		'403' => $error,
+		'401' => array( '$ref' => '#/components/responses/Unauthorized' ),
+		'403' => array( '$ref' => '#/components/responses/Forbidden' ),
 	);
 
 	if ( ! empty( $parameters ) ) {
-		$responses['422'] = $error;
+		$responses['422'] = array( '$ref' => '#/components/responses/Unprocessable' );
 	}
 
-	$responses['429'] = $error;
+	$responses['429'] = array( '$ref' => '#/components/responses/RateLimited' );
 
 	return array(
 		'summary'     => $summary,
@@ -60,9 +83,8 @@ function dn_bfs_api_openapi_document() {
 	$string  = array( 'type' => 'string' );
 	$integer = array( 'type' => 'integer' );
 	$numbers = array( 'type' => 'object', 'additionalProperties' => array( 'type' => 'number' ) );
-	$metrics = array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() );
+	$metrics = dn_bfs_api_metric_names();
 	$period  = array( 'type' => 'object', 'nullable' => true, 'properties' => array( 'start' => $date, 'end' => $date ) );
-	$error   = array( '$ref' => '#/components/responses/Error' );
 	$range   = array(
 		dn_bfs_api_openapi_param( 'start', 'First day, YYYY-MM-DD in the store timezone.', $date, true ),
 		dn_bfs_api_openapi_param( 'end', 'Last day, YYYY-MM-DD in the store timezone. At most ' . dn_bfs_api_max_range_days() . ' days including both ends.', $date, true ),
@@ -72,7 +94,11 @@ function dn_bfs_api_openapi_document() {
 			'style'       => 'deepObject',
 			'explode'     => true,
 			'description' => 'filter[dimension]=value. Dimensions: ' . implode( ', ', dn_bfs_filter_dimensions() ) . '. Two or more filters only work while raw data is kept (422 filter_out_of_retention otherwise).',
-			'schema'      => array( 'type' => 'object', 'additionalProperties' => $string ),
+			'schema'      => array(
+				'type'                 => 'object',
+				'properties'           => array_fill_keys( dn_bfs_filter_dimensions(), $string ),
+				'additionalProperties' => false,
+			),
 		),
 	);
 	$rows    = array(
@@ -87,6 +113,30 @@ function dn_bfs_api_openapi_document() {
 		return array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array( $name => $string, 'visitors' => $integer ) ) );
 	};
 
+	$meta    = array(
+		'type'       => 'object',
+		'properties' => array(
+			'api_version'          => $integer,
+			'plugin_version'       => $string,
+			'site_url'             => array( 'type' => 'string', 'format' => 'uri' ),
+			'key'                  => array(
+				'type'       => 'object',
+				'properties' => array(
+					'name'       => $string,
+					'prefix'     => $string,
+					'scopes'     => array( 'type' => 'array', 'items' => $string ),
+					'rate_limit' => array( 'type' => 'integer', 'description' => 'Requests per minute.' ),
+				),
+			),
+			'metrics'              => array( 'type' => 'array', 'items' => $string ),
+			'dimensions'           => array( 'type' => 'array', 'items' => $string ),
+			'filters'              => array( 'type' => 'array', 'items' => $string ),
+			'max_range_days'       => $integer,
+			'last_aggregated_date' => array( 'type' => 'string', 'description' => 'YYYY-MM-DD, empty before the first aggregation.' ),
+			'raw_available_from'   => array( 'type' => 'string', 'format' => 'date' ),
+		),
+	);
+
 	return array(
 		'openapi'    => '3.0.3',
 		'info'       => array(
@@ -98,13 +148,13 @@ function dn_bfs_api_openapi_document() {
 		'security'   => array( array( 'bearerAuth' => array() ), array( 'keyHeader' => array() ) ),
 		'paths'      => array(
 			'/meta'             => array(
-				'get' => dn_bfs_api_openapi_operation( 'Plugin, key and API limits', '', array(), array( 'type' => 'object' ) ),
+				'get' => dn_bfs_api_openapi_operation( 'Plugin, key and API limits', '', array(), $meta ),
 			),
 			'/stats/summary'    => array(
 				'get' => dn_bfs_api_openapi_operation(
 					'Totals for a date range, with an optional comparison',
 					'stats:read',
-					array_merge( $range, array( dn_bfs_api_openapi_param( 'compare', 'Comparison period.', array( 'type' => 'string', 'enum' => array( 'none', 'previous_period', 'previous_year' ), 'default' => 'none' ) ) ) ),
+					array_merge( $range, array( dn_bfs_api_openapi_param( 'compare', 'Comparison period.', array( 'type' => 'string', 'enum' => dn_bfs_api_compare_modes(), 'default' => 'none' ) ) ) ),
 					array(
 						'type'       => 'object',
 						'properties' => array(
@@ -120,7 +170,7 @@ function dn_bfs_api_openapi_document() {
 				'get' => dn_bfs_api_openapi_operation(
 					'Daily values per metric',
 					'stats:read',
-					array_merge( $range, array( dn_bfs_api_openapi_param( 'metrics', 'Comma-separated metrics: ' . implode( ', ', $metrics ) . '.', array( 'type' => 'string', 'default' => 'sessions,orders,revenue' ) ) ) ),
+					array_merge( $range, array( dn_bfs_api_openapi_param( 'metrics', 'Comma-separated metrics: ' . implode( ', ', $metrics ) . '.', array( 'type' => 'string', 'default' => implode( ',', dn_bfs_api_default_metrics() ) ) ) ) ),
 					array(
 						'type'       => 'object',
 						'properties' => array(
@@ -140,7 +190,7 @@ function dn_bfs_api_openapi_document() {
 							dn_bfs_api_openapi_param( 'dimension', 'Dimension to group by.', array( 'type' => 'string', 'enum' => dn_bfs_report_dimensions() ), true ),
 							dn_bfs_api_openapi_param( 'orderby', 'Metric to sort by.', array( 'type' => 'string', 'enum' => $metrics ) ),
 							dn_bfs_api_openapi_param( 'order', 'Sort direction.', array( 'type' => 'string', 'enum' => array( 'asc', 'desc' ), 'default' => 'desc' ) ),
-							dn_bfs_api_openapi_param( 'limit', 'Rows per page.', array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 500, 'default' => 25 ) ),
+							dn_bfs_api_openapi_param( 'limit', 'Rows per page.', array( 'type' => 'integer', 'minimum' => 1, 'maximum' => dn_bfs_api_limit_max(), 'default' => dn_bfs_api_limit_default() ) ),
 							dn_bfs_api_openapi_param( 'page', 'Page number, starting at 1.', array( 'type' => 'integer', 'minimum' => 1, 'default' => 1 ) ),
 						)
 					),
@@ -191,9 +241,9 @@ function dn_bfs_api_openapi_document() {
 					'description' => 'Any valid API key.',
 					'responses'   => array(
 						'200' => array( 'description' => 'OpenAPI 3.0 document', 'content' => array( 'application/json' => array( 'schema' => array( 'type' => 'object' ) ) ) ),
-						'401' => $error,
-						'403' => $error,
-						'429' => $error,
+						'401' => array( '$ref' => '#/components/responses/Unauthorized' ),
+						'403' => array( '$ref' => '#/components/responses/Forbidden' ),
+						'429' => array( '$ref' => '#/components/responses/RateLimited' ),
 					),
 				),
 			),
@@ -204,12 +254,7 @@ function dn_bfs_api_openapi_document() {
 				'keyHeader'  => array( 'type' => 'apiKey', 'in' => 'header', 'name' => 'X-DNBFS-Key' ),
 			),
 			'schemas'         => array(
-				'Error' => array(
-					'type'       => 'object',
-					'required'   => array( 'code', 'message' ),
-					'properties' => array( 'code' => $string, 'message' => $string ),
-				),
-				'Meta'  => array(
+				'Meta' => array(
 					'type'       => 'object',
 					'required'   => array( 'timezone', 'currency', 'range', 'estimated' ),
 					'properties' => array(
@@ -221,10 +266,13 @@ function dn_bfs_api_openapi_document() {
 				),
 			),
 			'responses'       => array(
-				'Error' => array(
-					'description' => '401 missing/invalid/revoked key; 403 missing scope, IP not allowed or HTTPS required; 422 invalid parameters; 429 rate limited (see Retry-After).',
-					'content'     => array( 'application/json' => array( 'schema' => array( '$ref' => '#/components/schemas/Error' ) ) ),
+				'Unauthorized'  => dn_bfs_api_openapi_error_response( 'The API key is missing or not valid.', array( 'missing_key', 'invalid_key' ), array( 'WWW-Authenticate' => array( 'description' => 'Authentication challenge.', 'schema' => array( 'type' => 'string' ) ) ) ),
+				'Forbidden'     => dn_bfs_api_openapi_error_response( 'The key is not allowed to make this request.', array( 'insufficient_scope', 'ip_not_allowed', 'https_required' ) ),
+				'Unprocessable' => dn_bfs_api_openapi_error_response(
+					'A query parameter is invalid.',
+					array( 'invalid_date', 'range_too_long', 'invalid_compare', 'invalid_filter', 'invalid_metric', 'invalid_dimension', 'invalid_orderby', 'invalid_order', 'invalid_limit', 'invalid_page', 'filter_out_of_retention' )
 				),
+				'RateLimited'   => dn_bfs_api_openapi_error_response( 'The key exceeded its rate limit.', array( 'rate_limited' ), array( 'Retry-After' => array( 'description' => 'Seconds to wait before retrying.', 'schema' => array( 'type' => 'integer' ) ) ) ),
 			),
 		),
 	);
