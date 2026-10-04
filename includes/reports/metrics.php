@@ -9,6 +9,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+function dn_bfs_lower( $value ) {
+	return function_exists( 'mb_strtolower' ) ? mb_strtolower( (string) $value, 'UTF-8' ) : strtolower( (string) $value );
+}
+
+/**
+ * Daily row key for a dimension value: values are grouped case-insensitively.
+ */
+function dn_bfs_dim_hash( $value ) {
+	return md5( dn_bfs_lower( $value ) );
+}
+
 function dn_bfs_metric_columns() {
 	return array( 'pageviews', 'visitors', 'sessions', 'new_visitors', 'bounces', 'duration_sum', 'product_views', 'atc', 'carts', 'checkouts', 'orders', 'revenue', 'items', 'tips', 'paid', 'balance' );
 }

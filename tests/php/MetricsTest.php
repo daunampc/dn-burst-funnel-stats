@@ -98,4 +98,10 @@ class MetricsTest extends TestCase {
 		$this->assertSame( array( 'c', 'a', 'b' ), array_column( dn_bfs_sort_report_rows( $rows, 'sessions', 'desc' ), 'dim_value' ) );
 		$this->assertSame( array( 'a', 'b', 'c' ), array_column( dn_bfs_sort_report_rows( $rows, 'sessions', 'asc' ), 'dim_value' ) );
 	}
+
+	public function test_dim_hash_is_case_insensitive() {
+		$this->assertSame( md5( 'facebook' ), dn_bfs_dim_hash( 'FaceBook' ) );
+		$this->assertSame( dn_bfs_dim_hash( 'tiền boa' ), dn_bfs_dim_hash( 'TIỀN BOA' ) );
+		$this->assertSame( md5( '' ), dn_bfs_dim_hash( '' ) );
+	}
 }

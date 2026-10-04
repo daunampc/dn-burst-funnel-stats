@@ -58,7 +58,7 @@ function dn_bfs_daily_write_rows( $date, $dimension, $rows, $columns = array() )
 		foreach ( $chunk as $value => $metrics ) {
 			$value    = dn_bfs_truncate( (string) $value, 255 );
 			$tuples[] = $tuple;
-			array_push( $args, $date, $dimension, md5( $value ), $value );
+			array_push( $args, $date, $dimension, dn_bfs_dim_hash( $value ), $value );
 
 			foreach ( $columns as $column ) {
 				$args[] = $metrics[ $column ];

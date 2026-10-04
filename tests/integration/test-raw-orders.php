@@ -208,7 +208,7 @@ dn_bfs_it(
 
 		foreach ( $dimensions as $dimension ) {
 			foreach ( dn_bfs_raw_order_rows( $start, $end, $dimension, array() ) as $value => $metrics ) {
-				$row = $GLOBALS['wpdb']->get_row( $GLOBALS['wpdb']->prepare( 'SELECT * FROM ' . dn_bfs_table( 'daily' ) . ' WHERE date = %s AND dimension = %s AND dim_hash = %s', $date, $dimension, md5( (string) $value ) ), ARRAY_A );
+				$row = $GLOBALS['wpdb']->get_row( $GLOBALS['wpdb']->prepare( 'SELECT * FROM ' . dn_bfs_table( 'daily' ) . ' WHERE date = %s AND dimension = %s AND dim_hash = %s', $date, $dimension, dn_bfs_dim_hash( $value ) ), ARRAY_A );
 
 				foreach ( dn_bfs_order_columns() as $column ) {
 					dn_bfs_assert_same( $metrics[ $column ], dn_bfs_normalize_metrics( $row )[ $column ], $dimension . '/' . $value . '/' . $column );

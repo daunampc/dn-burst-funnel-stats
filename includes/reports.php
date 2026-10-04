@@ -116,7 +116,7 @@ function dn_bfs_daily_filter_where( $filters ) {
 
 	$dimension = key( $filters );
 
-	return $wpdb->prepare( 'dimension = %s AND dim_hash = %s', $dimension, md5( $filters[ $dimension ] ) );
+	return $wpdb->prepare( 'dimension = %s AND dim_hash = %s', $dimension, dn_bfs_dim_hash( $filters[ $dimension ] ) );
 }
 
 function dn_bfs_daily_totals( $start_date, $end_date, $filters ) {
@@ -168,13 +168,7 @@ function dn_bfs_daily_breakdown( $start_date, $end_date, $dimension ) {
 		ARRAY_A
 	);
 
-	$rows = array();
-
-	foreach ( (array) $results as $row ) {
-		$rows[ (string) $row['dim_value'] ] = dn_bfs_normalize_metrics( $row );
-	}
-
-	return $rows;
+	return dn_bfs_raw_collect( $results );
 }
 
 function dn_bfs_report_period_metrics( $start_ts, $end_ts, $filters, $now ) {
@@ -362,10 +356,7 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 		}
 
 		if ( $period['has_live'] ) {
-			foreach ( dn_bfs_report_raw_rows( $period['live_start_ts'], $period['end_ts'], $dimension, array() ) as $key => $metrics ) {
-				$key          = (string) $key;
-				$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
-			}
+			$rows = dn_bfs_raw_merge_rows( $rows, dn_bfs_report_raw_rows( $period['live_start_ts'], $period['end_ts'], $dimension, array() ) );
 		}
 
 		// Per-row visitors are summed across days, so multi-day breakdowns are estimates.

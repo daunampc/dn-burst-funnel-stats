@@ -6,7 +6,7 @@ function dn_bfs_it_daily( $date, $dimension, $value = '' ) {
 	global $wpdb;
 
 	return $wpdb->get_row(
-		$wpdb->prepare( 'SELECT * FROM ' . dn_bfs_table( 'daily' ) . ' WHERE date = %s AND dimension = %s AND dim_hash = %s', $date, $dimension, md5( $value ) ),
+		$wpdb->prepare( 'SELECT * FROM ' . dn_bfs_table( 'daily' ) . ' WHERE date = %s AND dimension = %s AND dim_hash = %s', $date, $dimension, dn_bfs_dim_hash( $value ) ),
 		ARRAY_A
 	);
 }
@@ -252,7 +252,7 @@ dn_bfs_it(
 		dn_bfs_it_settings( array( 'raw_retention_days' => 7 ) );
 
 		$date = wp_date( 'Y-m-d', dn_bfs_it_day_noon( 10 ) );
-		$wpdb->insert( dn_bfs_table( 'daily' ), array( 'date' => $date, 'dimension' => 'browser', 'dim_hash' => md5( 'Chrome' ), 'dim_value' => 'Chrome', 'sessions' => 3, 'orders' => 4 ) );
+		$wpdb->insert( dn_bfs_table( 'daily' ), array( 'date' => $date, 'dimension' => 'browser', 'dim_hash' => dn_bfs_dim_hash( 'Chrome' ), 'dim_value' => 'Chrome', 'sessions' => 3, 'orders' => 4 ) );
 		$wpdb->insert( dn_bfs_table( 'daily' ), array( 'date' => $date, 'dimension' => 'blocked', 'dim_hash' => md5( 'bot' ), 'dim_value' => 'bot', 'pageviews' => 7, 'orders' => 2 ) );
 		$wpdb->insert( dn_bfs_table( 'daily' ), array( 'date' => $date, 'dimension' => 'channel', 'dim_hash' => md5( 'paid' ), 'dim_value' => 'paid', 'sessions' => 2, 'orders' => 5 ) );
 

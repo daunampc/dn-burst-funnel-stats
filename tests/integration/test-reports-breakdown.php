@@ -146,3 +146,35 @@ dn_bfs_it(
 		dn_bfs_assert_same( 2, array_sum( array_column( $realtime['channels'], 'visitors' ) ) );
 	}
 );
+
+dn_bfs_it(
+	'dimension values group case-insensitively across daily rows, live rows and filters',
+	function () {
+		delete_option( 'dnbfs_last_aggregated_date' );
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'dnbfs_dirty_' ) . '%' ) );
+
+		foreach ( array( array( 2, 'Facebook' ), array( 1, 'facebook' ), array( 1, 'faceBOOK' ), array( 0, 'FACEBOOK' ) ) as $i => $seed ) {
+			$ts = 0 === $seed[0] ? time() - 30 : dn_bfs_it_day_noon( $seed[0] ) + $i;
+			$s  = dn_bfs_it_seed_session( array( 'started_at' => $ts, 'utm_source' => $seed[1] ) );
+			dn_bfs_it_seed_pageview( $s, '/', $ts );
+		}
+
+		dn_bfs_aggregate_run( time() );
+		dn_bfs_assert_same( dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -1 ), get_option( 'dnbfs_last_aggregated_date' ) );
+
+		foreach ( array( 'facebook', 'FACEBOOK' ) as $value ) {
+			$summary = dn_bfs_report_summary( dn_bfs_it_breakdown_range( 3 ), array( 'source' => $value ) );
+			dn_bfs_assert_same( 4, $summary['current']['sessions'], 'filter ' . $value );
+		}
+
+		$result = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'source', array(), 'sessions', 'desc' );
+		dn_bfs_assert_same( 1, $result['total'], 'one source row' );
+		dn_bfs_assert_same( 4, $result['rows'][0]['sessions'] );
+		dn_bfs_assert_same( 'facebook', strtolower( $result['rows'][0]['dim_value'] ) );
+
+		$merged = dn_bfs_raw_merge_rows( array( 'Facebook' => dn_bfs_normalize_metrics( array( 'sessions' => 1 ) ) ), array( 'facebook' => dn_bfs_normalize_metrics( array( 'sessions' => 2 ) ) ) );
+		dn_bfs_assert_same( array( 'Facebook' ), array_keys( $merged ) );
+		dn_bfs_assert_same( 3, $merged['Facebook']['sessions'] );
+	}
+);

@@ -66,12 +66,41 @@ function dn_bfs_raw_filter_sql( $filters, $alias ) {
 	return $sql;
 }
 
+/**
+ * Adds metrics to the row whose key matches case-insensitively. The first-seen
+ * spelling stays the row key (the display value). `$index` maps lower-cased
+ * keys to row keys and must cover every key already in `$rows`.
+ */
+function dn_bfs_rows_add( &$rows, &$index, $key, $metrics ) {
+	$key   = (string) $key;
+	$lower = dn_bfs_lower( $key );
+
+	if ( isset( $index[ $lower ] ) ) {
+		$key          = $index[ $lower ];
+		$rows[ $key ] = dn_bfs_add_metrics( $rows[ $key ], $metrics );
+		return;
+	}
+
+	$index[ $lower ] = $key;
+	$rows[ $key ]    = $metrics;
+}
+
+function dn_bfs_rows_index( $rows ) {
+	$index = array();
+
+	foreach ( array_keys( $rows ) as $key ) {
+		$index[ dn_bfs_lower( $key ) ] = (string) $key;
+	}
+
+	return $index;
+}
+
 function dn_bfs_raw_collect( $results ) {
-	$rows = array();
+	$rows  = array();
+	$index = array();
 
 	foreach ( (array) $results as $result ) {
-		$key          = (string) $result['dim_value'];
-		$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], dn_bfs_normalize_metrics( $result ) ) : dn_bfs_normalize_metrics( $result );
+		dn_bfs_rows_add( $rows, $index, $result['dim_value'], dn_bfs_normalize_metrics( $result ) );
 	}
 
 	return $rows;
@@ -142,11 +171,7 @@ function dn_bfs_raw_traffic_rows( $start, $end, $dimension, $filters ) {
 		)
 	);
 
-	foreach ( $pageview_rows as $key => $row ) {
-		$session_rows[ $key ] = isset( $session_rows[ $key ] ) ? dn_bfs_add_metrics( $session_rows[ $key ], $row ) : $row;
-	}
-
-	return $session_rows;
+	return dn_bfs_raw_merge_rows( $session_rows, $pageview_rows );
 }
 
 function dn_bfs_raw_event_rows( $start, $end, $dimension, $filters ) {
@@ -376,6 +401,8 @@ function dn_bfs_raw_order_rows_query( $start, $end, $dimensions, $filters ) {
 	$settings['order_statuses'] = array_keys( wc_get_order_statuses() );
 	$with_products              = isset( $columns['product'] );
 
+	$indexes = array_fill_keys( array_keys( $out ), array() );
+
 	foreach ( (array) $results as $result ) {
 		$order = dn_bfs_raw_get_order( (int) $result['order_id'] );
 
@@ -389,11 +416,15 @@ function dn_bfs_raw_order_rows_query( $start, $end, $dimensions, $filters ) {
 			$adds = 'product' === $dimension ? $measured['products'] : array( (string) $result[ $alias ] => $measured['metrics'] );
 
 			foreach ( $adds as $key => $metrics ) {
-				$key = (string) $key;
+				$key   = (string) $key;
+				$lower = dn_bfs_lower( $key );
 
-				if ( ! isset( $out[ $dimension ][ $key ] ) ) {
-					$out[ $dimension ][ $key ] = dn_bfs_empty_metrics();
+				if ( ! isset( $indexes[ $dimension ][ $lower ] ) ) {
+					$indexes[ $dimension ][ $lower ] = $key;
+					$out[ $dimension ][ $key ]       = dn_bfs_empty_metrics();
 				}
+
+				$key = $indexes[ $dimension ][ $lower ];
 
 				foreach ( $metrics as $column => $value ) {
 					$out[ $dimension ][ $key ][ $column ] += $value;
@@ -420,9 +451,10 @@ function dn_bfs_raw_order_rows( $start, $end, $dimension, $filters ) {
 }
 
 function dn_bfs_raw_merge_rows( $rows, $more ) {
+	$index = dn_bfs_rows_index( $rows );
+
 	foreach ( $more as $key => $metrics ) {
-		$key          = (string) $key;
-		$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
+		dn_bfs_rows_add( $rows, $index, $key, $metrics );
 	}
 
 	return $rows;

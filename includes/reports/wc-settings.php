@@ -58,7 +58,3 @@ function dn_bfs_get_wc_report_settings() {
 function dn_bfs_order_status_key( $order ) {
 	return 'wc-' . $order->get_status();
 }
-
-function dn_bfs_lower( $value ) {
-	return function_exists( 'mb_strtolower' ) ? mb_strtolower( (string) $value, 'UTF-8' ) : strtolower( (string) $value );
-}
