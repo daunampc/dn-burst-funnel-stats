@@ -122,6 +122,8 @@ dn_bfs_it_today(
 		);
 
 		dn_bfs_assert_true( false !== strpos( $payload['html'], 'notice-warning' ), 'notice' );
+		dn_bfs_assert_true( false !== strpos( $payload['html'], 'Combined filters are only available for dates that still have raw tracking data.' ), 'retention message' );
+		dn_bfs_assert_same( 'filter_out_of_retention', dn_bfs_report_error_out_of_retention()->get_error_code() );
 		dn_bfs_assert_same( 'invalid_filter', dn_bfs_ajax_tab_payload( array( 'filter' => array( 'browser' => 'x' ) ) )->get_error_code() );
 	}
 );
@@ -169,5 +171,75 @@ dn_bfs_it_today(
 		$fallback = ob_get_clean();
 		dn_bfs_assert_true( false !== strpos( $fallback, 'Unknown date range.' ), 'invalid URL notice' );
 		$_GET = array();
+	}
+);
+
+dn_bfs_it_today(
+	'estimate note renders for multi-day unfiltered ranges',
+	function () {
+		dn_bfs_it_login_admin();
+		dn_bfs_it_seed_page_traffic();
+
+		$today = wp_date( 'Y-m-d', dn_bfs_it_now() );
+		$html  = dn_bfs_ajax_tab_payload( array( 'tab' => 'overview', 'period' => 'custom', 'start' => dn_bfs_date_shift( $today, -3 ), 'end' => $today ) )['html'];
+
+		dn_bfs_assert_true( false !== strpos( $html, 'dn-burst-estimate-note' ), 'estimate note' );
+	}
+);
+
+dn_bfs_it_today(
+	'brand totals aggregate across breakdown pages',
+	function () {
+		dn_bfs_it_login_admin();
+
+		if ( ! taxonomy_exists( 'product_brand' ) ) {
+			register_taxonomy( 'product_brand', 'product' );
+		}
+
+		$products = wc_get_products( array( 'limit' => 2, 'status' => 'publish', 'orderby' => 'ID', 'order' => 'ASC', 'return' => 'ids' ) );
+		dn_bfs_assert_true( count( $products ) >= 2, 'two products available' );
+
+		foreach ( $products as $product ) {
+			wp_set_object_terms( (int) $product, 'Acme', 'product_brand' );
+			$s = dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_now() - 60 ) );
+			dn_bfs_it_seed_event( $s, 'product_view', dn_bfs_it_now() - 60, array( 'product_id' => (int) $product ) );
+		}
+
+		$size = function () {
+			return 1;
+		};
+		add_filter( 'dn_bfs_brand_page_size', $size );
+
+		list( $range, $filters ) = dn_bfs_dash_request( array( 'period' => 'today' ) );
+		$result                  = dn_bfs_dash_brand_breakdown( $range, $filters, '', 'desc', 25, 0 );
+
+		remove_filter( 'dn_bfs_brand_page_size', $size );
+
+		$acme = array_values( array_filter( $result['rows'], function ( $row ) {
+			return 'Acme' === $row['label'];
+		} ) );
+
+		dn_bfs_assert_same( 1, count( $acme ), 'single brand row' );
+		dn_bfs_assert_same( 2, (int) $acme[0]['product_views'], 'views summed across pages' );
+
+		foreach ( $products as $product ) {
+			wp_set_object_terms( (int) $product, array(), 'product_brand' );
+		}
+	}
+);
+
+dn_bfs_it_today(
+	'money output keeps bdi, malformed aggregate date and unsafe drill values are tolerated',
+	function () {
+		dn_bfs_assert_true( false !== strpos( dn_bfs_dash_kses_money( '<span class="x"><bdi>1</bdi></span><script>x</script>' ), '<bdi>1</bdi>' ), 'bdi kept' );
+		dn_bfs_assert_true( false === strpos( dn_bfs_dash_kses_money( '<script>x</script>' ), '<script' ), 'script stripped' );
+
+		update_option( 'dnbfs_last_aggregated_date', 'garbage' );
+		dn_bfs_assert_same( 'Not yet', dn_bfs_dash_status_labels()['last'] );
+		delete_option( 'dnbfs_last_aggregated_date' );
+
+		dn_bfs_it_login_admin();
+		list( $range, $filters ) = dn_bfs_dash_request( array( 'period' => 'today' ) );
+		dn_bfs_assert_true( false !== strpos( dn_bfs_dash_drilldown_html( $range, $filters, 'campaign', '<b></b>' ), 'cannot be explored' ), 'empty after sanitize' );
 	}
 );

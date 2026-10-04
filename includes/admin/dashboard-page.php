@@ -183,7 +183,7 @@ function dn_bfs_dash_status_labels() {
 	$next = wp_next_scheduled( 'dnbfs_aggregate' );
 
 	return array(
-		'last' => '' !== $last ? wp_date( get_option( 'date_format' ), ( new DateTimeImmutable( $last . ' 12:00:00', wp_timezone() ) )->getTimestamp() ) : __( 'Not yet', 'dn-burst-funnel-stats' ),
+		'last' => '' !== $last && dn_bfs_valid_date_string( $last ) ? wp_date( get_option( 'date_format' ), ( new DateTimeImmutable( $last . ' 12:00:00', wp_timezone() ) )->getTimestamp() ) : __( 'Not yet', 'dn-burst-funnel-stats' ),
 		'next' => $next ? wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $next ) : __( 'Not scheduled', 'dn-burst-funnel-stats' ),
 	);
 }
@@ -329,7 +329,7 @@ function dn_bfs_dash_render_chart_legend( $type, $data ) {
 					<span class="dn-burst-chart-legend-dot" style="background-color: <?php echo esc_attr( isset( $row['color'] ) ? $row['color'] : '#2271b1' ); ?>"></span>
 					<span><?php echo esc_html( isset( $row['label'] ) ? $row['label'] : '' ); ?></span>
 				</span>
-				<strong><?php echo wp_kses_post( dn_bfs_dash_format_chart_value( dn_bfs_dash_chart_series_total( isset( $row['values'] ) ? $row['values'] : array() ), isset( $row['format'] ) ? $row['format'] : 'integer' ) ); ?></strong>
+				<strong><?php echo dn_bfs_dash_kses_money( dn_bfs_dash_format_chart_value( dn_bfs_dash_chart_series_total( isset( $row['values'] ) ? $row['values'] : array() ), isset( $row['format'] ) ? $row['format'] : 'integer' ) ); ?></strong>
 			</div>
 		<?php endforeach; ?>
 	</div>
@@ -355,7 +355,7 @@ function dn_bfs_dash_render_chart_panel( $title, $type, $data ) {
 			<?php if ( '' !== $total && '' !== $total_label ) : ?>
 				<div class="dn-burst-chart-total">
 					<span><?php echo esc_html( $total_label ); ?></span>
-					<strong><?php echo wp_kses_post( $total ); ?></strong>
+					<strong><?php echo dn_bfs_dash_kses_money( $total ); ?></strong>
 				</div>
 			<?php endif; ?>
 		</div>
@@ -381,16 +381,16 @@ function dn_bfs_dash_render_card( $key, $card, $compare_label, $hidden ) {
 		<div class="dn-burst-card-icon"><?php echo esc_html( dn_bfs_dash_icon( $card['icon'] ) ); ?></div>
 		<h3 class="dn-burst-card-title"><?php echo esc_html( $card['title'] ); ?></h3>
 		<div class="dn-burst-main-line">
-			<div class="dn-burst-main <?php echo $is_large ? 'is-large' : ''; ?>"><?php echo wp_kses_post( $main ); ?></div>
+			<div class="dn-burst-main <?php echo $is_large ? 'is-large' : ''; ?>"><?php echo dn_bfs_dash_kses_money( $main ); ?></div>
 			<?php if ( '' !== $card['secondary'] ) : ?>
-				<div class="dn-burst-secondary"><?php echo wp_kses_post( $card['secondary'] ); ?></div>
+				<div class="dn-burst-secondary"><?php echo dn_bfs_dash_kses_money( $card['secondary'] ); ?></div>
 			<?php endif; ?>
 			<?php if ( '' !== $card['change'] ) : ?>
 				<span class="dn-burst-change <?php echo 0 === strpos( $card['change'], '-' ) ? 'is-down' : 'is-up'; ?>"><?php echo esc_html( $card['change'] ); ?></span>
 			<?php endif; ?>
 		</div>
 		<?php if ( '' !== $card['compare'] ) : ?>
-			<div class="dn-burst-compare"><strong><?php echo wp_kses_post( $card['compare'] ); ?></strong> <?php echo esc_html( $compare_label ); ?></div>
+			<div class="dn-burst-compare"><strong><?php echo dn_bfs_dash_kses_money( $card['compare'] ); ?></strong> <?php echo esc_html( $compare_label ); ?></div>
 		<?php endif; ?>
 	</div>
 	<?php
@@ -551,23 +551,53 @@ function dn_bfs_dash_overview_html( $range, $filters ) {
 	return ob_get_clean();
 }
 
-function dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $limit, $offset ) {
-	$products = dn_bfs_report_breakdown( $range, 'product', $filters, 'revenue', 'desc', 500, 0 );
+function dn_bfs_dash_kses_money( $html ) {
+	$allowed        = wp_kses_allowed_html( 'post' );
+	$allowed['bdi'] = array();
 
-	if ( is_wp_error( $products ) ) {
-		return $products;
-	}
+	return wp_kses( (string) $html, $allowed );
+}
+
+function dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $limit, $offset ) {
+	$page_size = max( 1, min( 500, (int) apply_filters( 'dn_bfs_brand_page_size', 500 ) ) );
+	$product_rows = array();
+	$estimated    = false;
+	$page_offset  = 0;
+
+	do {
+		$products = dn_bfs_report_breakdown( $range, 'product', $filters, 'revenue', 'desc', $page_size, $page_offset );
+
+		if ( is_wp_error( $products ) ) {
+			return $products;
+		}
+
+		$product_rows = array_merge( $product_rows, $products['rows'] );
+		$estimated    = $products['estimated'];
+		$page_offset += $page_size;
+	} while ( $page_offset < (int) $products['total'] );
 
 	$taxonomies = array_values( array_filter( array( 'product_brand', 'pa_brand' ), 'taxonomy_exists' ) );
-	$brands     = array();
+	$ids        = array_values( array_unique( array_filter( array_map( function ( $row ) {
+		return (int) $row['dim_value'];
+	}, $product_rows ) ) ) );
+	$names      = array();
 
-	foreach ( $products['rows'] as $row ) {
-		$name  = __( 'Unassigned', 'dn-burst-funnel-stats' );
-		$terms = $taxonomies && (int) $row['dim_value'] > 0 ? wp_get_post_terms( (int) $row['dim_value'], $taxonomies, array( 'fields' => 'names' ) ) : array();
+	if ( $taxonomies && $ids ) {
+		$terms = wp_get_object_terms( $ids, $taxonomies, array( 'fields' => 'all_with_object_id' ) );
 
-		if ( ! is_wp_error( $terms ) && ! empty( $terms ) ) {
-			$name = (string) reset( $terms );
+		if ( ! is_wp_error( $terms ) ) {
+			foreach ( $terms as $term ) {
+				if ( ! isset( $names[ (int) $term->object_id ] ) ) {
+					$names[ (int) $term->object_id ] = (string) $term->name;
+				}
+			}
 		}
+	}
+
+	$brands = array();
+
+	foreach ( $product_rows as $row ) {
+		$name = isset( $names[ (int) $row['dim_value'] ] ) ? $names[ (int) $row['dim_value'] ] : __( 'Unassigned', 'dn-burst-funnel-stats' );
 
 		$brands[ $name ] = isset( $brands[ $name ] ) ? dn_bfs_add_metrics( $brands[ $name ], dn_bfs_normalize_metrics( $row ) ) : dn_bfs_normalize_metrics( $row );
 	}
@@ -589,7 +619,7 @@ function dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $limit
 	return array(
 		'rows'      => array_slice( $rows, $offset, $limit ),
 		'total'     => count( $rows ),
-		'estimated' => $products['estimated'],
+		'estimated' => $estimated,
 	);
 }
 
@@ -645,7 +675,7 @@ function dn_bfs_dash_table_html( $tab, $dimension, $range, $filters, $args = arr
 						<tr<?php if ( $can_drill ) : ?> class="is-drillable" data-dn-drill-dimension="<?php echo esc_attr( $dimension ); ?>" data-dn-drill-value="<?php echo esc_attr( $value ); ?>" tabindex="0"<?php endif; ?>>
 							<td><?php echo esc_html( dn_bfs_dash_value_label( $dimension, $row ) ); ?></td>
 							<?php foreach ( $columns as $column ) : ?>
-								<td><?php echo wp_kses_post( dn_bfs_dash_format_cell( $column, isset( $row[ $column ] ) ? $row[ $column ] : 0 ) ); ?></td>
+								<td><?php echo dn_bfs_dash_kses_money( dn_bfs_dash_format_cell( $column, isset( $row[ $column ] ) ? $row[ $column ] : 0 ) ); ?></td>
 							<?php endforeach; ?>
 						</tr>
 					<?php endforeach; ?>
@@ -701,12 +731,13 @@ function dn_bfs_dash_breakdown_html( $tab, $range, $filters, $args ) {
 }
 
 function dn_bfs_dash_drilldown_html( $range, $filters, $dimension, $value ) {
-	$value = trim( (string) $value );
+	$clean = in_array( $dimension, dn_bfs_filter_dimensions(), true ) ? dn_bfs_sanitize_filters( array( $dimension => $value ) ) : array();
 
-	if ( ! in_array( $dimension, dn_bfs_filter_dimensions(), true ) || '' === $value ) {
+	if ( ! isset( $clean[ $dimension ] ) ) {
 		return dn_bfs_dash_notice( __( 'This row cannot be explored.', 'dn-burst-funnel-stats' ) );
 	}
 
+	$value                 = $clean[ $dimension ];
 	$filters[ $dimension ] = $value;
 	$filters               = dn_bfs_sanitize_filters( $filters );
 	$summary               = dn_bfs_report_summary( $range, $filters );
@@ -765,7 +796,7 @@ function dn_bfs_dash_drilldown_html( $range, $filters, $dimension, $value ) {
 		<?php foreach ( $stats as $metric => $stat ) : ?>
 			<div class="dn-burst-drawer-stat">
 				<span><?php echo esc_html( $stat[0] ); ?></span>
-				<strong><?php echo wp_kses_post( $stat[1] ); ?></strong>
+				<strong><?php echo dn_bfs_dash_kses_money( $stat[1] ); ?></strong>
 				<?php $change = dn_bfs_dash_change( $summary, $metric ); ?>
 				<?php if ( '' !== $change ) : ?>
 					<em class="<?php echo 0 === strpos( $change, '-' ) ? 'is-down' : 'is-up'; ?>"><?php echo esc_html( $change ); ?></em>

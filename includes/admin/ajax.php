@@ -13,11 +13,23 @@ function dn_bfs_ajax_guard() {
 	nocache_headers();
 
 	if ( ! dn_bfs_admin_permission() ) {
-		wp_send_json_error( array( 'message' => __( 'You do not have permission to view these stats.', 'dn-burst-funnel-stats' ) ), 403 );
+		wp_send_json_error(
+			array(
+				'message' => __( 'You do not have permission to view these stats.', 'dn-burst-funnel-stats' ),
+				'code'    => 'forbidden',
+			),
+			403
+		);
 	}
 
 	if ( ! check_ajax_referer( 'dn_bfs_admin', 'nonce', false ) ) {
-		wp_send_json_error( array( 'message' => __( 'Security check failed. Refresh the page and try again.', 'dn-burst-funnel-stats' ) ), 403 );
+		wp_send_json_error(
+			array(
+				'message' => __( 'Security check failed. Refresh the page and try again.', 'dn-burst-funnel-stats' ),
+				'code'    => 'invalid_nonce',
+			),
+			403
+		);
 	}
 }
 
@@ -141,11 +153,12 @@ function dn_bfs_ajax_filter_values_payload( $params ) {
 		$wpdb->prepare(
 			'SELECT dim_value, SUM(sessions) AS sessions FROM ' . dn_bfs_table( 'daily' ) . '
 			WHERE dimension = %s AND date >= %s AND dim_value <> %s AND dim_value LIKE %s
-			GROUP BY dim_hash, dim_value',
+			GROUP BY dim_hash, dim_value ORDER BY SUM(sessions) DESC, dim_value ASC LIMIT %d',
 			$dimension,
 			dn_bfs_date_shift( wp_date( 'Y-m-d', $now ), -90 ),
 			'',
-			'%' . $wpdb->esc_like( $search ) . '%'
+			'%' . $wpdb->esc_like( $search ) . '%',
+			200
 		),
 		ARRAY_A
 	);
