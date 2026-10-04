@@ -227,7 +227,10 @@ dn_bfs_it_today(
 
 		$range = dn_bfs_it_range( 2, 1, 'none' );
 
-		dn_bfs_assert_same( 2, dn_bfs_report_summary( $range )['current']['visitors'] );
+		$summary = dn_bfs_report_summary( $range );
+
+		dn_bfs_assert_same( 2, $summary['current']['visitors'] );
+		dn_bfs_assert_same( 2, $summary['current']['new_visitors'], 'new visitors' );
 		dn_bfs_assert_same( 2, dn_bfs_report_summary( $range, array( 'country' => 'VN', 'device' => 'desktop' ) )['current']['visitors'] );
 		dn_bfs_assert_same( 0, dn_bfs_report_summary( $range, array( 'device' => 'mobile' ) )['current']['visitors'] );
 	}
