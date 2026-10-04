@@ -258,6 +258,27 @@ dn_bfs_it(
 );
 
 dn_bfs_it(
+	'numeric-looking tip keywords in another order are not a rule change',
+	function () {
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
+		$post = array( 'dn_bfs' => dn_bfs_it_group_values( 'woocommerce' ) );
+
+		// Default sort() compares "10"/"9" numerically but "1a" as a string, so its result depends on input order.
+		$orders = array( "10\n9\n1a", "1a\n9\n10", "9\n1a\n10", "10\n1a\n9", "9\n10\n1a", "1a\n10\n9" );
+
+		$post['dn_bfs']['tip_keywords'] = $orders[0];
+		dn_bfs_settings_save_from_post( 'woocommerce', $post );
+
+		foreach ( $orders as $order ) {
+			$post['dn_bfs']['tip_keywords'] = $order;
+			dn_bfs_assert_same( 'saved', dn_bfs_settings_save_from_post( 'woocommerce', $post ), str_replace( "\n", ',', $order ) );
+		}
+
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
+	}
+);
+
+dn_bfs_it(
 	'importing changed WooCommerce revenue rules yields the re-aggregate notice',
 	function () {
 		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );

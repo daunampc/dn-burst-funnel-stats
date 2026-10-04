@@ -142,7 +142,7 @@ function dn_bfs_wc_revenue_rules() {
 	// Sorted so that the same statuses or keywords in another order are not a rule change.
 	foreach ( array( 'sales_excluded_statuses', 'paid_statuses', 'balance_statuses', 'tip_keywords' ) as $key ) {
 		$list = array_values( (array) $settings[ $key ] );
-		sort( $list );
+		sort( $list, SORT_STRING );
 		$rules[ $key ] = $list;
 	}
 

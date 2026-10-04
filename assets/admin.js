@@ -299,7 +299,10 @@
 
 	function formatNumber(value, minPlaces, maxPlaces, thousand, decimal) {
 		var parts = Number(value).toFixed(maxPlaces).split('.');
-		var whole = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousand);
+		// A function replacer keeps "$" in a separator literal.
+		var whole = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, function () {
+			return thousand;
+		});
 		var fraction = parts.length > 1 ? parts[1] : '';
 
 		while (fraction.length > minPlaces && fraction.charAt(fraction.length - 1) === '0') {
