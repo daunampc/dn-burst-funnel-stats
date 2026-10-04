@@ -1055,6 +1055,10 @@
   margin-left: auto;
 }
 
+.dn-burst-funnel-stats .dn-burst-dashboard-toolbar .dn-burst-date-control {
+  min-width: 0;
+}
+
 /* Date range: single-line "Today · vs. Previous year" button. */
 .dn-burst-date-control {
   position: relative;

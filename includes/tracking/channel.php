@@ -44,14 +44,16 @@ function dn_bfs_campaign_params() {
  * utm_source is missing (auto-tagged ads carry no utm_* parameters).
  */
 function dn_bfs_paid_click_params() {
+	// gad_source is added by Google Ads to ad clicks only, including iOS clicks without gclid.
 	return array(
-		'gclid'     => 'google',
-		'gbraid'    => 'google',
-		'wbraid'    => 'google',
-		'msclkid'   => 'bing',
-		'ttclid'    => 'tiktok',
-		'twclid'    => 'twitter',
-		'li_fat_id' => 'linkedin',
+		'gclid'      => 'google',
+		'gbraid'     => 'google',
+		'wbraid'     => 'google',
+		'gad_source' => 'google',
+		'msclkid'    => 'bing',
+		'ttclid'     => 'tiktok',
+		'twclid'     => 'twitter',
+		'li_fat_id'  => 'linkedin',
 	);
 }
 
@@ -118,8 +120,6 @@ function dn_bfs_extract_utm( $query ) {
 	if ( '' === $utm['source'] ) {
 		if ( '' !== $click_source ) {
 			$utm['source'] = $click_source;
-		} elseif ( '' !== dn_bfs_query_param( $params, 'gad_source' ) ) {
-			$utm['source'] = 'google';
 		} elseif ( '' !== dn_bfs_query_param( $params, 'fbclid' ) ) {
 			// fbclid is also added to organic Facebook links, so it is not a paid click.
 			$utm['source'] = 'facebook';

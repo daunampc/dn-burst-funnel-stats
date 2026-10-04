@@ -14,7 +14,7 @@
 	var CLICK = 'dnbfs_ck';
 	// Same order as dn_bfs_campaign_params() / dn_bfs_paid_click_params() on the server.
 	var CAMPAIGN_PARAMS = ['utm_campaign', 'utm_id', 'gad_campaignid', 'campaign_id', 'hsa_cam'];
-	var CLICK_PARAMS = ['gclid', 'gbraid', 'wbraid', 'msclkid', 'ttclid', 'twclid', 'li_fat_id'];
+	var CLICK_PARAMS = ['gclid', 'gbraid', 'wbraid', 'gad_source', 'msclkid', 'ttclid', 'twclid', 'li_fat_id'];
 	var HEX = /^[a-f0-9]{32}$/;
 
 	function decode(value) {
