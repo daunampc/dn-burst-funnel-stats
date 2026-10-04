@@ -36,6 +36,7 @@ function dn_bfs_api_endpoints() {
 		'stats/breakdown'  => array( 'scope' => 'stats:read', 'handler' => 'dn_bfs_api_endpoint_breakdown', 'cache' => true ),
 		'stats/funnel'     => array( 'scope' => 'stats:read', 'handler' => 'dn_bfs_api_endpoint_funnel', 'cache' => true ),
 		'stats/realtime'   => array( 'scope' => 'realtime:read', 'handler' => 'dn_bfs_api_endpoint_realtime', 'cache' => false ),
+		'openapi.json'     => array( 'scope' => '', 'handler' => 'dn_bfs_api_endpoint_openapi', 'cache' => false ),
 	);
 }
 

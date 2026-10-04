@@ -139,7 +139,7 @@ function dn_burst_funnel_stats_load_admin()
  */
 function dn_burst_funnel_stats_load_api()
 {
-  foreach (array('keys', 'auth', 'routes') as $module) {
+  foreach (array('keys', 'auth', 'routes', 'openapi') as $module) {
     require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/api/' . $module . '.php';
   }
 }
