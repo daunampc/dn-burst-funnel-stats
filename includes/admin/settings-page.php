@@ -1,6 +1,6 @@
 <?php
 /**
- * Settings screen: seven tabs of WordPress forms on top of the settings model.
+ * Settings screen: eight tabs of WordPress forms on top of the settings model.
  *
  * @package DN_Burst_Funnel_Stats
  */
@@ -18,6 +18,7 @@ function dn_bfs_settings_tabs() {
 		'geoip'       => __( 'GeoIP', 'dn-burst-funnel-stats' ),
 		'data'        => __( 'Data', 'dn-burst-funnel-stats' ),
 		'system'      => __( 'System', 'dn-burst-funnel-stats' ),
+		'api'         => __( 'API', 'dn-burst-funnel-stats' ),
 	);
 }
 
@@ -238,6 +239,14 @@ function dn_bfs_settings_notice( $code, $args = array() ) {
 		'reagg_locked'     => array( 'warning', __( 'Aggregation is already running. Try again shortly.', 'dn-burst-funnel-stats' ) ),
 		'reagg_none'       => array( 'info', __( 'Nothing to rebuild: the selected range is today or later.', 'dn-burst-funnel-stats' ) ),
 		'range_too_long'   => array( 'error', __( 'Re-aggregate at most 92 days at a time.', 'dn-burst-funnel-stats' ) ),
+		'key_created'        => array( 'success', __( 'API key created. Copy it from the box below — it is shown only once.', 'dn-burst-funnel-stats' ) ),
+		'key_revoked'        => array( 'success', __( 'The API key was revoked.', 'dn-burst-funnel-stats' ) ),
+		'invalid_name'       => array( 'error', __( 'Give the key a name.', 'dn-burst-funnel-stats' ) ),
+		'invalid_scopes'     => array( 'error', __( 'Choose at least one scope.', 'dn-burst-funnel-stats' ) ),
+		'invalid_ips'        => array( 'error', __( 'Allowed IPs must be IP addresses or CIDR ranges, one per line.', 'dn-burst-funnel-stats' ) ),
+		'invalid_rate_limit' => array( 'error', __( 'The rate limit must be between 1 and 1000 requests per minute.', 'dn-burst-funnel-stats' ) ),
+		'key_not_found'      => array( 'error', __( 'That key does not exist or is already revoked.', 'dn-burst-funnel-stats' ) ),
+		'key_create_failed'  => array( 'error', __( 'The key could not be saved. Please try again.', 'dn-burst-funnel-stats' ) ),
 	);
 
 	if ( isset( $messages[ $code ] ) ) {
@@ -606,6 +615,8 @@ function dn_bfs_render_settings_page() {
 		<?php
 		if ( 'system' === $tab ) {
 			dn_bfs_render_settings_system();
+		} elseif ( 'api' === $tab ) {
+			dn_bfs_render_settings_api();
 		} else {
 			dn_bfs_render_settings_form( $tab );
 

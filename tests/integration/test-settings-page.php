@@ -12,7 +12,7 @@ dn_bfs_it(
 			dn_bfs_assert_same( $keys, array_column( $fields[ $group ], 'key' ), $group );
 		}
 
-		dn_bfs_assert_same( array( 'general', 'tracking', 'antispam', 'woocommerce', 'geoip', 'data', 'system' ), array_keys( dn_bfs_settings_tabs() ) );
+		dn_bfs_assert_same( array( 'general', 'tracking', 'antispam', 'woocommerce', 'geoip', 'data', 'system', 'api' ), array_keys( dn_bfs_settings_tabs() ) );
 	}
 );
 
@@ -98,7 +98,7 @@ dn_bfs_it(
 	function () {
 		dn_bfs_it_login_admin();
 
-		foreach ( array( 'general', 'tracking', 'antispam', 'woocommerce', 'geoip', 'data', 'system' ) as $tab ) {
+		foreach ( array( 'general', 'tracking', 'antispam', 'woocommerce', 'geoip', 'data', 'api', 'system' ) as $tab ) {
 			$_GET = array( 'page' => 'dn-burst-funnel-stats-settings', 'tab' => $tab );
 
 			add_filter( 'pre_http_request', '__return_empty_array' );
