@@ -140,7 +140,10 @@ function dn_bfs_aggregate_day( $date, $now, $raw_from = null ) {
 	}
 
 	if ( ! $ok || false === $wpdb->query( 'COMMIT' ) ) {
+		// Keep the failing query's error readable for the caller after ROLLBACK flushes it.
+		$error = $wpdb->last_error;
 		$wpdb->query( 'ROLLBACK' );
+		$wpdb->last_error = $error;
 
 		return false;
 	}
@@ -307,6 +310,10 @@ function dn_bfs_aggregate_lock_release( $value ) {
  * after `$max_days` (per phase) or once the `dn_bfs_aggregate_time_budget`
  * (seconds, default 25) is spent; the budget is checked before each day except
  * the first, so every run makes progress even with a budget of 0.
+ *
+ * A failed day write stops the run: the watermark stays before that day, a
+ * failed dirty date stays queued, and `dnbfs_aggregate_last_error` records
+ * the date and database error (cleared again by the next successful run).
  */
 function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 	$started = microtime( true );
@@ -327,6 +334,7 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 	$last      = (string) get_option( 'dnbfs_last_aggregated_date', '' );
 	$processed = array();
 	$stop      = false;
+	$failed    = null;
 
 	if ( '' === $last ) {
 		$first = dn_bfs_first_tracked_date();
@@ -341,18 +349,34 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 		return ! $stop && ( empty( $processed ) || microtime( true ) - $started <= $budget );
 	};
 
-	$run_day = function ( $date ) use ( &$processed, &$stop, &$lock, $now, $raw_from ) {
+	$run_day = function ( $date ) use ( &$processed, &$stop, &$lock, &$failed, $now, $raw_from ) {
+		global $wpdb;
+
 		dn_bfs_raw_get_order( 0, true );
-		$ok          = false !== dn_bfs_aggregate_day( $date, $now, $raw_from );
+
+		if ( false === dn_bfs_aggregate_day( $date, $now, $raw_from ) ) {
+			$failed = array(
+				'date'    => $date,
+				'message' => (string) $wpdb->last_error,
+				'time'    => dn_bfs_now(),
+			);
+			$stop   = true;
+
+			return false;
+		}
+
 		$processed[] = $date;
 		$lock        = dn_bfs_aggregate_lock_refresh( $lock, dn_bfs_now() );
 		$stop        = false === $lock;
 
-		return $ok;
+		return true;
 	};
 
 	for ( $cursor = dn_bfs_date_shift( $last, 1 ); $cursor <= $yesterday && count( $processed ) < $max_days && $can_start(); $cursor = dn_bfs_date_shift( $cursor, 1 ) ) {
-		$run_day( $cursor );
+		if ( ! $run_day( $cursor ) ) {
+			break;
+		}
+
 		update_option( 'dnbfs_last_aggregated_date', $cursor, false );
 	}
 
@@ -378,6 +402,7 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 		if ( ! $run_day( $date ) ) {
 			// Keep it queued so the next run retries the rebuild.
 			add_option( 'dnbfs_dirty_' . $date, 1, '', 'no' );
+			break;
 		}
 
 		$done++;
@@ -386,6 +411,18 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 	if ( false !== $lock ) {
 		dn_bfs_aggregate_lock_release( $lock );
 	}
+
+	if ( null !== $failed ) {
+		update_option( 'dnbfs_aggregate_last_error', $failed, false );
+
+		return array(
+			'ok'        => false,
+			'reason'    => 'write_failed',
+			'processed' => $processed,
+		);
+	}
+
+	delete_option( 'dnbfs_aggregate_last_error' );
 
 	return array(
 		'ok'        => true,

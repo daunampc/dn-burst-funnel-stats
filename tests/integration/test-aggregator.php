@@ -25,6 +25,7 @@ function dn_bfs_it_reset_aggregator_state() {
 	delete_option( 'dnbfs_last_aggregated_date' );
 	dn_bfs_it_clear_dirty_dates();
 	delete_option( 'dnbfs_aggregate_lock' );
+	delete_option( 'dnbfs_aggregate_last_error' );
 	remove_all_actions( 'dn_bfs_before_aggregate_day' );
 	remove_all_filters( 'dn_bfs_aggregate_time_budget' );
 	dn_bfs_raw_get_order( 0, true );
@@ -355,16 +356,63 @@ dn_bfs_it(
 			dn_bfs_assert_same( false, dn_bfs_aggregate_day( $date, time() ), 'aggregate_day result' );
 			dn_bfs_assert_same( '1', dn_bfs_it_daily( $date, 'total' )['sessions'], 'rolled back' );
 
-			dn_bfs_aggregate_run( time() );
+			$result = dn_bfs_aggregate_run( time() );
 		} finally {
 			remove_filter( 'query', 'dn_bfs_it_fail_daily_inserts' );
 		}
 
+		dn_bfs_assert_same( false, $result['ok'] );
+		dn_bfs_assert_same( 'write_failed', $result['reason'] );
+		dn_bfs_assert_same( array(), $result['processed'] );
 		dn_bfs_assert_same( '1', dn_bfs_it_daily( $date, 'total' )['sessions'], 'rolled back in run' );
 		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates() );
 
 		dn_bfs_aggregate_run( time() );
 		dn_bfs_assert_same( '2', dn_bfs_it_daily( $date, 'total' )['sessions'], 'retried' );
 		dn_bfs_assert_same( array(), dn_bfs_get_dirty_dates() );
+	}
+);
+
+function dn_bfs_it_break_daily_inserts( $query ) {
+	return 0 === strpos( ltrim( $query ), 'INSERT INTO ' . dn_bfs_table( 'daily' ) ) ? str_replace( 'INSERT INTO ' . dn_bfs_table( 'daily' ), 'INSERT INTO ' . dn_bfs_table( 'daily_missing' ), $query ) : $query;
+}
+
+dn_bfs_it(
+	'a failed catch-up day stops the run without advancing the watermark and records the error',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+
+		$today = wp_date( 'Y-m-d', time() );
+		$last  = dn_bfs_date_shift( $today, -4 );
+		update_option( 'dnbfs_last_aggregated_date', $last, false );
+		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 3 ) ) );
+
+		add_filter( 'query', 'dn_bfs_it_break_daily_inserts' );
+		$suppressed = $GLOBALS['wpdb']->suppress_errors( true );
+
+		try {
+			$result = dn_bfs_aggregate_run( time() );
+		} finally {
+			$GLOBALS['wpdb']->suppress_errors( $suppressed );
+			remove_filter( 'query', 'dn_bfs_it_break_daily_inserts' );
+		}
+
+		dn_bfs_assert_same( false, $result['ok'] );
+		dn_bfs_assert_same( 'write_failed', $result['reason'] );
+		dn_bfs_assert_same( array(), $result['processed'] );
+		dn_bfs_assert_same( $last, get_option( 'dnbfs_last_aggregated_date' ) );
+		dn_bfs_assert_true( false === get_option( 'dnbfs_aggregate_lock' ), 'lock released' );
+
+		$error = get_option( 'dnbfs_aggregate_last_error' );
+		dn_bfs_assert_true( is_array( $error ), 'error stored' );
+		dn_bfs_assert_same( dn_bfs_date_shift( $last, 1 ), $error['date'] );
+		dn_bfs_assert_true( false !== strpos( $error['message'], 'daily_missing' ), 'database error recorded: ' . $error['message'] );
+		dn_bfs_assert_true( $error['time'] > 0, 'error time' );
+
+		$next = dn_bfs_aggregate_run( time() );
+		dn_bfs_assert_true( $next['ok'], 'recovered' );
+		dn_bfs_assert_same( 3, count( $next['processed'] ) );
+		dn_bfs_assert_same( dn_bfs_date_shift( $today, -1 ), get_option( 'dnbfs_last_aggregated_date' ) );
+		dn_bfs_assert_true( false === get_option( 'dnbfs_aggregate_last_error' ), 'error cleared' );
 	}
 );
