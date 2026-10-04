@@ -211,18 +211,9 @@ function dn_bfs_raw_event_rows( $start, $end, $dimension, $filters ) {
 }
 
 function dn_bfs_raw_distinct_visitors( $start, $end, $filters, $new_only = false ) {
-	global $wpdb;
+	$counts = dn_bfs_raw_distinct_visitor_counts( $start, $end, $filters );
 
-	$new_sql = $new_only ? ' AND s.is_new_visitor = 1' : '';
-
-	return (int) $wpdb->get_var(
-		$wpdb->prepare(
-			'SELECT COUNT(DISTINCT s.visitor_uid) FROM ' . dn_bfs_table( 'sessions' ) . " s
-			WHERE s.started_at >= %d AND s.started_at < %d AND s.is_spam = 0 AND s.pageviews > 0{$new_sql}" . dn_bfs_raw_filter_sql( $filters, 's' ),
-			(int) $start,
-			(int) $end
-		)
-	);
+	return $new_only ? $counts['new_visitors'] : $counts['visitors'];
 }
 
 function dn_bfs_raw_distinct_visitor_counts( $start, $end, $filters ) {

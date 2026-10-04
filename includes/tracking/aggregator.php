@@ -22,6 +22,23 @@ function dn_bfs_raw_cutoff_date( $now ) {
 }
 
 /**
+ * Latest date that can be closed: its sessions may keep collecting pageviews
+ * until `session_timeout` minutes after midnight, so a day is closable only
+ * once end-of-day + timeout has passed.
+ */
+function dn_bfs_last_closable_date( $now ) {
+	$settings      = dn_bfs_get_tracking_settings();
+	$date          = dn_bfs_date_shift( wp_date( 'Y-m-d', (int) $now ), -1 );
+	list( , $end ) = dn_bfs_day_bounds( $date );
+
+	if ( $end + (int) $settings['session_timeout'] * MINUTE_IN_SECONDS > (int) $now ) {
+		$date = dn_bfs_date_shift( $date, -1 );
+	}
+
+	return $date;
+}
+
+/**
  * First date that still has raw tracking data. Cleanup never purges days after
  * the aggregation watermark, so a lagging watermark extends raw availability
  * past the retention cutoff.
@@ -268,11 +285,14 @@ function dn_bfs_aggregate_lock_expiry( $value ) {
  * Lock value is "<expiry>|<token>". Inserted with INSERT IGNORE so only one
  * process can win; refresh/release are compare-and-swap on the stored value.
  *
+ * Expiry uses the real clock (dn_bfs_now()), never a caller-supplied time.
+ *
  * @return string|false Lock value owned by the caller, or false when locked.
  */
-function dn_bfs_aggregate_lock_acquire( $now ) {
+function dn_bfs_aggregate_lock_acquire() {
 	global $wpdb;
 
+	$now   = dn_bfs_now();
 	$value = ( (int) $now + 10 * MINUTE_IN_SECONDS ) . '|' . wp_generate_password( 12, false );
 
 	for ( $attempt = 0; $attempt < 2; $attempt++ ) {
@@ -324,7 +344,8 @@ function dn_bfs_aggregate_lock_release( $value ) {
 }
 
 /**
- * Rebuilds dirty dates and catches up to yesterday. Stops starting new days
+ * Rebuilds dirty dates and catches up to the last closable date (yesterday
+ * once session_timeout minutes have passed since midnight). Stops starting new days
  * after `$max_days` (per phase) or once the `dn_bfs_aggregate_time_budget`
  * (seconds, default 25) is spent; the budget is checked before each day except
  * the first, so every run makes progress even with a budget of 0.
@@ -336,7 +357,7 @@ function dn_bfs_aggregate_lock_release( $value ) {
 function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 	$started = microtime( true );
 	$now     = null === $now ? dn_bfs_now() : (int) $now;
-	$lock    = dn_bfs_aggregate_lock_acquire( $now );
+	$lock    = dn_bfs_aggregate_lock_acquire();
 
 	if ( false === $lock ) {
 		return array(
@@ -347,8 +368,7 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 	}
 
 	$budget    = (int) apply_filters( 'dn_bfs_aggregate_time_budget', 25 );
-	$today     = wp_date( 'Y-m-d', $now );
-	$yesterday = dn_bfs_date_shift( $today, -1 );
+	$yesterday = dn_bfs_last_closable_date( $now );
 	$last      = (string) get_option( 'dnbfs_last_aggregated_date', '' );
 	$processed = array();
 	$stop      = false;
@@ -406,8 +426,8 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 			continue;
 		}
 
-		// Today is still filling up; already-rebuilt dates may have been re-marked mid-run, so keep both for the next run.
-		if ( $date >= $today || in_array( $date, $processed, true ) ) {
+		// Unclosed days are still filling up; already-rebuilt dates may have been re-marked mid-run, so keep both for the next run.
+		if ( $date > $yesterday || in_array( $date, $processed, true ) ) {
 			continue;
 		}
 

@@ -465,3 +465,45 @@ dn_bfs_it(
 		dn_bfs_assert_same( array(), dn_bfs_raw_order_rows( $start, $end, 'total', array() ), 'deleted orders' );
 	}
 );
+
+dn_bfs_it(
+	'yesterday is only closed once its last sessions can have timed out, and reports cover it live meanwhile',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+		dn_bfs_it_settings( array( 'session_timeout' => 30 ) );
+
+		$today            = wp_date( 'Y-m-d', time() );
+		$yesterday        = dn_bfs_date_shift( $today, -1 );
+		list( $midnight ) = dn_bfs_day_bounds( $today );
+		$session          = dn_bfs_it_seed_session( array( 'started_at' => $midnight - 60 ) );
+		dn_bfs_it_seed_pageview( $session, '/', $midnight - 60 );
+		update_option( 'dnbfs_last_aggregated_date', dn_bfs_date_shift( $today, -2 ), false );
+
+		$early = dn_bfs_aggregate_run( $midnight + 29 * MINUTE_IN_SECONDS );
+		dn_bfs_assert_same( array(), $early['processed'], 'not closable yet' );
+		dn_bfs_assert_same( dn_bfs_date_shift( $today, -2 ), get_option( 'dnbfs_last_aggregated_date' ) );
+
+		list( $start, $end ) = dn_bfs_day_bounds( $yesterday );
+		$period              = dn_bfs_report_period( $start, $end - 1, $midnight + 29 * MINUTE_IN_SECONDS );
+		dn_bfs_assert_same( true, $period['has_live'], 'yesterday read live' );
+		dn_bfs_assert_same( $yesterday, $period['live_start_date'] );
+		dn_bfs_assert_same( false, $period['incomplete'] );
+
+		$late = dn_bfs_aggregate_run( $midnight + 30 * MINUTE_IN_SECONDS );
+		dn_bfs_assert_same( array( $yesterday ), $late['processed'], 'closable' );
+		dn_bfs_assert_same( '1', dn_bfs_it_daily( $yesterday, 'total' )['sessions'] );
+	}
+);
+
+dn_bfs_it(
+	'the aggregate lock expires on the real clock, not the caller time',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+
+		update_option( 'dnbfs_aggregate_lock', ( time() - 10 ) . '|old', false );
+		$result = dn_bfs_aggregate_run( time() - DAY_IN_SECONDS );
+
+		dn_bfs_assert_true( $result['ok'], 'expired lock taken over for a back-dated run' );
+		dn_bfs_assert_true( false === get_option( 'dnbfs_aggregate_lock' ), 'lock released' );
+	}
+);
