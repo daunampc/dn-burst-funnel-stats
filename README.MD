@@ -45,10 +45,12 @@ Read-only statistics for your own servers, for example a NestJS backend. Create 
 
 * Base URL: `https://your-store.example/wp-json/dnbfs/v1`
 * Authentication: `Authorization: Bearer dnbfs_xxxxxxxx_…` or `X-DNBFS-Key: dnbfs_xxxxxxxx_…` (use the second header if your web server strips `Authorization`). A Bearer token is only read as the key when it starts with `dnbfs_`; otherwise the `X-DNBFS-Key` header is used.
-* HTTPS only, based on the site address (`home_url()`). Sites whose address is on `localhost`, `127.0.0.1`, `*.test` or `*.localhost` are exempt for development (filter `dn_bfs_api_require_https`). Behind a proxy or load balancer that terminates TLS, make WordPress see HTTPS, for example in `wp-config.php`: `if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ) { $_SERVER['HTTPS'] = 'on'; }`
+* HTTPS only, based on the site address (`home_url()`). Sites whose address is on `localhost`, `127.0.0.1`, `::1`, `*.test` or `*.localhost` are exempt for development (filter `dn_bfs_api_require_https`). Behind a proxy or load balancer that terminates TLS, make WordPress see HTTPS, for example in `wp-config.php`: `if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ) { $_SERVER['HTTPS'] = 'on'; }`. Only do this when your proxy always sets or overwrites `X-Forwarded-Proto` and the origin server cannot be reached directly; otherwise any client can send the header and claim HTTPS.
 * No CORS headers are sent: call the API from a server, never from a browser.
 * Each key has scopes (`stats:read`, `realtime:read`), optional allowed IPs (one IP or CIDR range per line) and a rate limit (default 60 requests per minute, counted atomically per key). Over the limit the API answers 429 with a `Retry-After` header.
-* The IP allow-list uses the connection address (`REMOTE_ADDR`). `CF-Connecting-IP` is trusted only when the connection comes from a Cloudflare range (filter `dn_bfs_api_cloudflare_ranges`). `X-Forwarded-For` is trusted only when `REMOTE_ADDR` is a trusted proxy (filter `dn_bfs_api_trusted_proxies`, empty by default); the right-most address that is not a trusted proxy is used. This is independent of the "Client IP source" tracking setting.
+* The IP allow-list uses the connection address (`REMOTE_ADDR`). `CF-Connecting-IP` is trusted only when the connection comes from a Cloudflare range (filter `dn_bfs_api_cloudflare_ranges`). `X-Forwarded-For` is trusted only when `REMOTE_ADDR` is a trusted proxy (filter `dn_bfs_api_trusted_proxies`, empty by default); the list is read right to left, skipping trusted proxies and Cloudflare addresses, and the first other address is used. This is independent of the "Client IP source" tracking setting.
+* The allow-list trusts the client address the web server passes to PHP. If Apache `mod_remoteip`, nginx `real_ip_header` or a similar module rewrites `REMOTE_ADDR` from `X-Forwarded-For` (the official `wordpress` Docker image does this for private ranges), a client may be able to choose its address; limit those modules to your real proxies.
+* Keys are hashed with the WordPress `AUTH_SALT`/`AUTH_KEY` salts. Changing the salts (some security plugins rotate them) invalidates every API key: create new keys afterwards.
 * With a persistent object cache (Redis, Memcached), successful statistics are cached for 60 seconds. Without one they are not cached as whole responses, so the database is not filled with one cache row per query; today's raw-data figures are still cached for 60 seconds, and expired cache rows are removed every hour. Realtime is never cached.
 
 Endpoints (all GET):
@@ -70,7 +72,7 @@ Responses look like this:
       "meta": { "timezone": "Asia/Ho_Chi_Minh", "currency": "VND", "range": { "start": "2026-09-01", "end": "2026-09-30" }, "estimated": false }
     }
 
-`estimated: true` means visitor counts were summed day by day because raw data for the whole range is no longer kept. Errors look like `{"code": "invalid_date", "message": "…"}` with status 401 (missing, invalid or revoked key), 403 (missing scope, IP not allowed or HTTPS required), 422 (invalid parameters) or 429 (rate limited).
+`estimated: true` means visitor counts were summed day by day because raw data for the whole range is no longer kept. Errors look like `{"code": "invalid_date", "message": "…"}` with status 401 (missing, invalid or revoked key), 403 (missing scope, IP not allowed or HTTPS required), 422 (invalid parameters) or 429 (rate limited). Unknown routes and methods other than GET get the standard WordPress 404 body (`{"code": "rest_no_route", "message": "…", "data": {"status": 404}}`), not the `{code, message}` shape.
 
 NestJS example (`@nestjs/axios`, `@nestjs/config`):
 
@@ -88,9 +90,9 @@ NestJS example (`@nestjs/axios`, `@nestjs/config`):
 
       async summary(start: string, end: string) {
         const { data } = await firstValueFrom(
-          this.http.get(`${this.config.get('DNBFS_URL')}/wp-json/dnbfs/v1/stats/summary`, {
+          this.http.get(`${this.config.getOrThrow<string>('DNBFS_URL')}/wp-json/dnbfs/v1/stats/summary`, {
             params: { start, end, compare: 'previous_period', 'filter[channel]': 'paid' },
-            headers: { Authorization: `Bearer ${this.config.get('DNBFS_API_KEY')}` },
+            headers: { Authorization: `Bearer ${this.config.getOrThrow<string>('DNBFS_API_KEY')}` },
             timeout: 10000,
           }),
         );

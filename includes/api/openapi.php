@@ -142,7 +142,7 @@ function dn_bfs_api_openapi_document() {
 		'info'       => array(
 			'title'       => 'DN Burst Funnel Stats API',
 			'version'     => DN_BURST_FUNNEL_STATS_VERSION,
-			'description' => 'Read-only WooCommerce funnel statistics for server-to-server use: HTTPS, API key, no CORS. Successful statistics are cached for 60 seconds when the site has a persistent object cache.',
+			'description' => 'Read-only WooCommerce funnel statistics for server-to-server use: HTTPS, API key, no CORS. Successful statistics are cached for 60 seconds when the site has a persistent object cache. Unknown routes and methods other than GET get the standard WordPress 404 body ({code, message, data}), not the {code, message} error shape.',
 		),
 		'servers'    => array( array( 'url' => untrailingslashit( rest_url( dn_bfs_api_namespace() ) ) ) ),
 		'security'   => array( array( 'bearerAuth' => array() ), array( 'keyHeader' => array() ) ),

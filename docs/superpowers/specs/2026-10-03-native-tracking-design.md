@@ -257,6 +257,8 @@ Namespace `/wp-json/dnbfs/v1/`, chỉ GET, dành cho gọi server-to-server (ví
 - Phản hồi: `{ "data": …, "meta": { "timezone", "currency", "range": {start,end} | null, "estimated": bool } }` (`range = null` cho `/meta` và `/stats/realtime`). `/openapi.json` trả thẳng tài liệu OpenAPI 3.0.3, không bọc envelope.
 - `data`: summary `{current, previous, change, previous_range}`; timeseries `{labels, series}`; breakdown `{dimension, rows, total, page, limit, pages}`; funnel `{steps: [{key, value}]}`; realtime `{online, pages, channels}`; meta `{api_version, plugin_version, site_url, key {name, prefix, scopes, rate_limit}, metrics, dimensions, filters, max_range_days, last_aggregated_date, raw_available_from}`.
 - Lỗi: `401 missing_key|invalid_key`, `403 insufficient_scope|ip_not_allowed|https_required`, `422` tham số sai (`invalid_date`, `range_too_long`, `invalid_compare`, `invalid_filter`, `invalid_metric`, `invalid_dimension`, `invalid_orderby`, `invalid_order`, `invalid_limit`, `invalid_page`, `filter_out_of_retention`), `429 rate_limited`. Body lỗi: `{ "code", "message" }`.
+- Route không tồn tại hoặc method khác GET do WordPress trả về: `404 rest_no_route` với body chuẩn của WordPress `{code, message, data}` (không phải `{code, message}`); README và OpenAPI ghi rõ điều này.
+- Salt WordPress (`AUTH_KEY`/`AUTH_SALT`) nằm trong HMAC: đổi salt làm mọi key hết hiệu lực. Allow-list tin vào `REMOTE_ADDR` web server đưa cho PHP (module real-IP như `mod_remoteip` có thể đã ghi đè từ `X-Forwarded-For`).
 - Tab Hệ thống kiểm tra `GET /meta` qua loopback trả `401 missing_key`.
 - README có ví dụ NestJS (`HttpService`, `Authorization: Bearer`).
 
