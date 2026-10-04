@@ -18,7 +18,7 @@ function dn_bfs_lower( $value ) {
  * utf8mb4_unicode_520_ci collation used by GROUP BY and filters).
  */
 function dn_bfs_dim_key( $value ) {
-	return dn_bfs_lower( function_exists( 'remove_accents' ) ? remove_accents( (string) $value ) : (string) $value );
+	return dn_bfs_lower( function_exists( 'remove_accents' ) ? remove_accents( (string) $value, 'en_US' ) : (string) $value );
 }
 
 /**
