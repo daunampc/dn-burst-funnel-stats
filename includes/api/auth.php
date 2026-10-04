@@ -10,8 +10,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * The Bearer token is used only when it looks like a plugin key, so a proxy or
+ * site login sending its own Bearer token does not hide X-DNBFS-Key.
+ */
 function dn_bfs_api_extract_key( $authorization, $header_key ) {
-	if ( preg_match( '/^\s*Bearer\s+(\S+)\s*$/i', (string) $authorization, $matches ) ) {
+	if ( preg_match( '/^\s*Bearer\s+(\S+)\s*$/i', (string) $authorization, $matches ) && 0 === strpos( $matches[1], 'dnbfs_' ) ) {
 		return $matches[1];
 	}
 
@@ -58,15 +62,154 @@ function dn_bfs_api_ip_allowed( $ip, $rules ) {
 }
 
 /**
- * Fixed one-minute window per key, counted in a transient.
+ * Cloudflare's published edge ranges (https://www.cloudflare.com/ips-v4 and ips-v6).
+ */
+function dn_bfs_api_default_cloudflare_ranges() {
+	return array(
+		'173.245.48.0/20',
+		'103.21.244.0/22',
+		'103.22.200.0/22',
+		'103.31.4.0/22',
+		'141.101.64.0/18',
+		'108.162.192.0/18',
+		'190.93.240.0/20',
+		'188.114.96.0/20',
+		'197.234.240.0/22',
+		'198.41.128.0/17',
+		'162.158.0.0/15',
+		'104.16.0.0/13',
+		'104.24.0.0/14',
+		'172.64.0.0/13',
+		'131.0.72.0/22',
+		'2400:cb00::/32',
+		'2606:4700::/32',
+		'2803:f800::/32',
+		'2405:b500::/32',
+		'2405:8100::/32',
+		'2a06:98c0::/29',
+		'2c0f:f248::/32',
+	);
+}
+
+function dn_bfs_api_ip_in_ranges( $ip, $ranges ) {
+	foreach ( (array) $ranges as $range ) {
+		if ( dn_bfs_ip_in_cidr( $ip, trim( (string) $range ) ) ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Client IP for API allow-lists. Unlike the tracking helper it trusts no header
+ * by default: CF-Connecting-IP only when the connection comes from a Cloudflare
+ * range, X-Forwarded-For only when it comes from a trusted proxy (walked
+ * right-to-left, skipping trusted proxies and Cloudflare hops).
+ */
+function dn_bfs_api_resolve_client_ip( $server, $trusted_proxies, $cloudflare_ranges ) {
+	$remote = isset( $server['REMOTE_ADDR'] ) ? trim( (string) $server['REMOTE_ADDR'] ) : '';
+
+	if ( false === filter_var( $remote, FILTER_VALIDATE_IP ) ) {
+		return 'unknown';
+	}
+
+	if ( dn_bfs_api_ip_in_ranges( $remote, $cloudflare_ranges ) ) {
+		$connecting = isset( $server['HTTP_CF_CONNECTING_IP'] ) ? trim( (string) $server['HTTP_CF_CONNECTING_IP'] ) : '';
+
+		return false !== filter_var( $connecting, FILTER_VALIDATE_IP ) ? $connecting : $remote;
+	}
+
+	if ( empty( $server['HTTP_X_FORWARDED_FOR'] ) || ! dn_bfs_api_ip_in_ranges( $remote, $trusted_proxies ) ) {
+		return $remote;
+	}
+
+	$trusted = array_merge( (array) $trusted_proxies, (array) $cloudflare_ranges );
+	$client  = $remote;
+
+	foreach ( array_reverse( explode( ',', (string) $server['HTTP_X_FORWARDED_FOR'] ) ) as $hop ) {
+		$hop = trim( $hop );
+
+		// A malformed hop means the chain can no longer be trusted past this point.
+		if ( false === filter_var( $hop, FILTER_VALIDATE_IP ) ) {
+			break;
+		}
+
+		$client = $hop;
+
+		if ( ! dn_bfs_api_ip_in_ranges( $hop, $trusted ) ) {
+			break;
+		}
+	}
+
+	return $client;
+}
+
+function dn_bfs_api_client_ip() {
+	$cloudflare = (array) apply_filters( 'dn_bfs_api_cloudflare_ranges', dn_bfs_api_default_cloudflare_ranges() );
+	$proxies    = (array) apply_filters( 'dn_bfs_api_trusted_proxies', array() );
+
+	return dn_bfs_api_resolve_client_ip( wp_unslash( $_SERVER ), $proxies, $cloudflare );
+}
+
+function dn_bfs_api_rate_option( $key_id ) {
+	return 'dnbfs_api_rl_' . (int) $key_id;
+}
+
+/**
+ * Atomically counts this request in the key's current minute and returns the
+ * new count, or false when the counter could not be written.
+ *
+ * With a persistent object cache: wp_cache_add + wp_cache_incr. Otherwise one
+ * option row per key holding "<minute>:<count>", updated by a single UPDATE that
+ * resets on a new minute or increments; LAST_INSERT_ID(expr) hands back the
+ * value this connection wrote, so concurrent requests each see their own count.
+ */
+function dn_bfs_api_rate_increment( $key_id, $window ) {
+	global $wpdb;
+
+	if ( wp_using_ext_object_cache() ) {
+		$name = 'rl_' . (int) $key_id . '_' . (int) $window;
+		wp_cache_add( $name, 0, 'dnbfs_api', 2 * MINUTE_IN_SECONDS );
+		$count = wp_cache_incr( $name, 1, 'dnbfs_api' );
+
+		if ( false !== $count ) {
+			return (int) $count;
+		}
+	}
+
+	$option = dn_bfs_api_rate_option( $key_id );
+	$minute = (string) (int) $window;
+	$update = $wpdb->prepare(
+		"UPDATE {$wpdb->options} SET option_value = CONCAT( %s, ':', LAST_INSERT_ID( IF( SUBSTRING_INDEX( option_value, ':', 1 ) = %s, CAST( SUBSTRING_INDEX( option_value, ':', -1 ) AS UNSIGNED ) + 1, 1 ) ) ) WHERE option_name = %s",
+		$minute,
+		$minute,
+		$option
+	);
+
+	for ( $attempt = 0; $attempt < 2; $attempt++ ) {
+		if ( 1 === (int) $wpdb->query( $update ) ) {
+			return (int) $wpdb->get_var( 'SELECT LAST_INSERT_ID()' );
+		}
+
+		if ( 0 === $attempt ) {
+			$wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$wpdb->options} ( option_name, option_value, autoload ) VALUES ( %s, %s, 'no' )", $option, $minute . ':0' ) );
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Fixed one-minute window per key (minutes of dn_bfs_now()).
  */
 function dn_bfs_api_rate_check( $key, $now ) {
 	$limit  = max( 1, (int) $key['rate_limit'] );
 	$window = (int) floor( $now / MINUTE_IN_SECONDS );
-	$name   = 'dnbfs_api_rl_' . (int) $key['id'] . '_' . $window;
-	$count  = (int) get_transient( $name );
+	$count  = dn_bfs_api_rate_increment( $key['id'], $window );
 
-	if ( $count >= $limit ) {
+	// Fail open if the counter could not be written: a broken options table must not lock out every key.
+	if ( false !== $count && $count > $limit ) {
 		return dn_bfs_request_error(
 			'rate_limited',
 			__( 'Too many requests for this API key. Try again later.', 'dn-burst-funnel-stats' ),
@@ -74,8 +217,6 @@ function dn_bfs_api_rate_check( $key, $now ) {
 			array( 'retry_after' => max( 1, ( $window + 1 ) * MINUTE_IN_SECONDS - (int) $now ) )
 		);
 	}
-
-	set_transient( $name, $count + 1, 2 * MINUTE_IN_SECONDS );
 
 	return true;
 }
@@ -99,7 +240,7 @@ function dn_bfs_api_touch_key( $key, $now ) {
 
 function dn_bfs_api_authenticate( WP_REST_Request $request, $scope, $now ) {
 	if ( dn_bfs_api_https_required() && ! is_ssl() ) {
-		return dn_bfs_request_error( 'https_required', __( 'The API only accepts HTTPS requests.', 'dn-burst-funnel-stats' ), 403 );
+		return dn_bfs_request_error( 'https_required', __( 'The API only accepts HTTPS requests. Behind a proxy or load balancer that terminates HTTPS, make WordPress detect it (for example set $_SERVER[\'HTTPS\'] = \'on\' in wp-config.php when X-Forwarded-Proto is https), or adjust the dn_bfs_api_require_https filter.', 'dn-burst-funnel-stats' ), 403 );
 	}
 
 	$raw = dn_bfs_api_extract_key( $request->get_header( 'authorization' ), $request->get_header( 'x_dnbfs_key' ) );
@@ -114,7 +255,7 @@ function dn_bfs_api_authenticate( WP_REST_Request $request, $scope, $now ) {
 		return dn_bfs_request_error( 'invalid_key', __( 'The API key is invalid or has been revoked.', 'dn-burst-funnel-stats' ), 401 );
 	}
 
-	if ( ! dn_bfs_api_ip_allowed( dn_bfs_get_client_ip(), $key['allowed_ips'] ) ) {
+	if ( ! dn_bfs_api_ip_allowed( dn_bfs_api_client_ip(), $key['allowed_ips'] ) ) {
 		return dn_bfs_request_error( 'ip_not_allowed', __( 'This API key cannot be used from your IP address.', 'dn-burst-funnel-stats' ), 403 );
 	}
 

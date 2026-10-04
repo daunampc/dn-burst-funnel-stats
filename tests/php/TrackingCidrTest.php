@@ -20,4 +20,20 @@ class TrackingCidrTest extends TestCase {
 		$this->assertFalse( dn_bfs_ip_in_cidr( '2001:db9::1', '2001:db8::/32' ) );
 		$this->assertFalse( dn_bfs_ip_in_cidr( '10.0.0.1', '2001:db8::/32' ) );
 	}
+
+	public function test_ipv6_partial_prefixes_and_exact_match() {
+		$this->assertTrue( dn_bfs_ip_in_cidr( '2a06:98c7::1', '2a06:98c0::/29' ) );
+		$this->assertFalse( dn_bfs_ip_in_cidr( '2a06:98c8::1', '2a06:98c0::/29' ) );
+		$this->assertTrue( dn_bfs_ip_in_cidr( '2001:db8::1', '2001:0db8:0:0::1' ) );
+		$this->assertTrue( dn_bfs_ip_in_cidr( '2001:db8::1', '::/0' ) );
+	}
+
+	public function test_malformed_rules_never_match() {
+		$this->assertFalse( dn_bfs_ip_in_cidr( '10.0.0.1', '10.0.0.0/' ) );
+		$this->assertFalse( dn_bfs_ip_in_cidr( '10.0.0.1', '10.0.0.0/33' ) );
+		$this->assertFalse( dn_bfs_ip_in_cidr( '10.0.0.1', '10.0.0.0/8x' ) );
+		$this->assertFalse( dn_bfs_ip_in_cidr( '2001:db8::1', '2001:db8::/129' ) );
+		$this->assertFalse( dn_bfs_ip_in_cidr( 'unknown', '10.0.0.0/8' ) );
+		$this->assertFalse( dn_bfs_ip_in_cidr( 'unknown', 'unknown' ) );
+	}
 }

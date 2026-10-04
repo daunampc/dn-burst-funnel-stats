@@ -58,6 +58,8 @@ function dn_bfs_it_reset() {
 	foreach ( array( 'dnbfs_r_', 'dnbfs_api_' ) as $transient_prefix ) {
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $wpdb->esc_like( '_transient_' . $transient_prefix ) . '%', $wpdb->esc_like( '_transient_timeout_' . $transient_prefix ) . '%' ) );
 	}
+	// API rate-limit counters are plain options (one per key id); key ids restart after TRUNCATE.
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'dnbfs_api_rl_' ) . '%' ) );
 	wp_cache_flush();
 
 	dn_bfs_it_settings( array() );
@@ -70,7 +72,7 @@ function dn_bfs_it_reset() {
 	$_SERVER['HTTP_USER_AGENT'] = DN_BFS_IT_UA;
 	$_SERVER['HTTP_REFERER']    = '';
 	$_SERVER['REQUEST_URI']     = '/';
-	unset( $_SERVER['HTTP_CF_RAY'], $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_CF_IPCOUNTRY'], $_SERVER['HTTPS'] );
+	unset( $_SERVER['HTTP_CF_RAY'], $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_CF_IPCOUNTRY'], $_SERVER['HTTP_X_FORWARDED_FOR'], $_SERVER['HTTPS'] );
 }
 
 function dn_bfs_it( $name, $callback ) {

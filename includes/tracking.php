@@ -269,16 +269,29 @@ function dn_bfs_get_current_user_agent() {
 }
 
 function dn_bfs_ip_in_cidr( $ip, $cidr ) {
+	$ip   = (string) $ip;
+	$cidr = (string) $cidr;
+
+	if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+		return false;
+	}
+
 	if ( false === strpos( $cidr, '/' ) ) {
-		return $ip === $cidr;
+		// Compare binary forms so equivalent IPv6 spellings match.
+		return false !== filter_var( $cidr, FILTER_VALIDATE_IP ) && inet_pton( $ip ) === inet_pton( $cidr );
 	}
 
 	list( $range_ip, $bits ) = explode( '/', $cidr, 2 );
-	$bits      = absint( $bits );
+
+	if ( ! ctype_digit( $bits ) || false === filter_var( $range_ip, FILTER_VALIDATE_IP ) ) {
+		return false;
+	}
+
+	$bits      = (int) $bits;
 	$ip_bin    = inet_pton( $ip );
 	$range_bin = inet_pton( $range_ip );
 
-	if ( false === $ip_bin || false === $range_bin || strlen( $ip_bin ) !== strlen( $range_bin ) ) {
+	if ( strlen( $ip_bin ) !== strlen( $range_bin ) || $bits > 8 * strlen( $ip_bin ) ) {
 		return false;
 	}
 

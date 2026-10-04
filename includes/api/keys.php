@@ -201,5 +201,8 @@ function dn_bfs_api_revoke_key( $id, $now = null ) {
 		return dn_bfs_request_error( 'key_not_found', __( 'That key does not exist or is already revoked.', 'dn-burst-funnel-stats' ), 404 );
 	}
 
+	// The per-key rate-limit counter row (includes/api/auth.php).
+	delete_option( dn_bfs_api_rate_option( $id ) );
+
 	return true;
 }

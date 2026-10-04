@@ -9,6 +9,8 @@ dn_bfs_it(
 		update_option( 'dn_bfs_data_last_changed', '1', false );
 		update_option( 'dn_atc_hits_2026_01_01', 3, false );
 		set_transient( 'dnbfs_r_test', array( 1 ), 60 );
+		dn_bfs_api_rate_check( array( 'id' => 987, 'rate_limit' => 5 ), 1800000000 );
+		dn_bfs_assert_same( '30000000:1', get_option( 'dnbfs_api_rl_987' ), 'rate-limit counter row exists' );
 		dn_bfs_schedule_crons();
 		wp_mkdir_p( dirname( dn_bfs_geo_db_path() ) . '/nested' );
 		file_put_contents( dn_bfs_geo_db_path(), 'x' );
@@ -42,6 +44,7 @@ dn_bfs_it(
 			dn_bfs_assert_true( false === get_option( 'dn_atc_hits_2026_01_01' ), 'legacy option' );
 			dn_bfs_assert_true( false === get_option( 'dn_burst_funnel_stats_tracking_settings' ), 'settings' );
 			dn_bfs_assert_true( false === get_transient( 'dnbfs_r_test' ), 'transient' );
+			dn_bfs_assert_true( false === get_option( 'dnbfs_api_rl_987' ), 'api rate-limit counter' );
 			dn_bfs_assert_true( false === wp_next_scheduled( 'dnbfs_aggregate' ), 'cron' );
 			dn_bfs_assert_true( ! file_exists( dn_bfs_geo_db_path() ), 'geoip file' );
 			dn_bfs_assert_true( ! file_exists( dirname( dn_bfs_geo_db_path() ) ), 'geoip folder with dotfiles and subfolders' );
