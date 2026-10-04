@@ -322,14 +322,40 @@ function dn_bfs_report_funnel( $range, $filters = array(), $now = null ) {
 	return $steps;
 }
 
-function dn_bfs_report_row_label( $dimension, $value ) {
-	if ( 'product' === $dimension ) {
-		$title = get_the_title( (int) $value );
+/**
+ * Adds a `label` to each (already paginated) breakdown row. Product rows are
+ * labelled with the plain-text product title, '#<id>' when the product is gone,
+ * and '(deleted product)' for order lines without a product (id 0).
+ */
+function dn_bfs_report_label_rows( $dimension, $rows ) {
+	if ( 'product' !== $dimension ) {
+		foreach ( $rows as $i => $row ) {
+			$rows[ $i ] = array_merge( array( 'dim_value' => $row['dim_value'], 'label' => (string) $row['dim_value'] ), $row );
+		}
 
-		return '' !== $title ? $title : '#' . (int) $value;
+		return $rows;
 	}
 
-	return (string) $value;
+	$ids = array_filter( array_map( 'intval', array_column( $rows, 'dim_value' ) ) );
+
+	if ( ! empty( $ids ) ) {
+		_prime_post_caches( $ids, false, false );
+	}
+
+	foreach ( $rows as $i => $row ) {
+		$id    = (int) $row['dim_value'];
+		$title = $id > 0 ? html_entity_decode( (string) get_post_field( 'post_title', $id ), ENT_QUOTES, 'UTF-8' ) : '';
+
+		if ( 0 === $id ) {
+			$label = __( '(deleted product)', 'dn-burst-funnel-stats' );
+		} else {
+			$label = '' !== $title ? $title : '#' . $id;
+		}
+
+		$rows[ $i ] = array_merge( array( 'dim_value' => $row['dim_value'], 'label' => $label ), $row );
+	}
+
+	return $rows;
 }
 
 function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $orderby = '', $order = 'desc', $limit = 25, $offset = 0, $now = null ) {
@@ -366,13 +392,7 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 	$list = array();
 
 	foreach ( $rows as $value => $metrics ) {
-		$list[] = array_merge(
-			array(
-				'dim_value' => (string) $value,
-				'label'     => dn_bfs_report_row_label( $dimension, $value ),
-			),
-			dn_bfs_derive_metrics( $metrics )
-		);
+		$list[] = array_merge( array( 'dim_value' => (string) $value ), dn_bfs_derive_metrics( $metrics ) );
 	}
 
 	$allowed = array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() );
@@ -381,7 +401,7 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 	$limit   = max( 1, min( 500, (int) $limit ) );
 
 	return array(
-		'rows'      => array_slice( $list, max( 0, (int) $offset ), $limit ),
+		'rows'      => dn_bfs_report_label_rows( $dimension, array_slice( $list, max( 0, (int) $offset ), $limit ) ),
 		'total'     => count( $list ),
 		'estimated' => $estimated,
 	);

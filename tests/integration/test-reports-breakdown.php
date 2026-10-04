@@ -65,7 +65,6 @@ dn_bfs_it(
 		$page = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'product', array(), 'product_views', 'desc', 1, 1 );
 		dn_bfs_assert_same( 3, $page['total'] );
 		dn_bfs_assert_same( 1, count( $page['rows'] ) );
-		dn_bfs_assert_true( '' !== $page['rows'][0]['label'], 'product label' );
 
 		$error = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'nope' );
 		dn_bfs_assert_same( 'invalid_dimension', $error->get_error_code() );
@@ -109,21 +108,31 @@ dn_bfs_it(
 	function () {
 		dn_bfs_it_seed_breakdown();
 
-		$post_id = wp_insert_post( array( 'post_type' => 'product', 'post_title' => 'Label Test', 'post_status' => 'publish' ) );
+		$post_id = wp_insert_post( array( 'post_type' => 'product', 'post_title' => 'Label & Test', 'post_status' => 'publish' ) );
 		$missing = 999999;
 
-		foreach ( array( $post_id, $missing ) as $product_id ) {
-			$s = dn_bfs_it_seed_session( array( 'started_at' => time() - 20 ) );
-			dn_bfs_it_seed_event( $s, 'product_view', time() - 20, array( 'product_id' => $product_id ) );
+		try {
+			foreach ( array( $post_id, $missing, $missing ) as $product_id ) {
+				$s = dn_bfs_it_seed_session( array( 'started_at' => time() - 20 ) );
+				dn_bfs_it_seed_event( $s, 'product_view', time() - 20, array( 'product_id' => $product_id ) );
+			}
+
+			$result = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'product', array(), 'product_views', 'desc', 50 );
+			$labels = array_column( $result['rows'], 'label', 'dim_value' );
+
+			dn_bfs_assert_same( 'Label & Test', $labels[ (string) $post_id ] );
+			dn_bfs_assert_same( '#' . $missing, $labels[ (string) $missing ] );
+
+			// Labels are added after sorting and slicing: a one-row page labels the top row.
+			$second = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'product', array(), 'product_views', 'desc', 1, 0 );
+			dn_bfs_assert_same( array( array( (string) $missing, '#' . $missing ) ), array_map( null, array_column( $second['rows'], 'dim_value' ), array_column( $second['rows'], 'label' ) ) );
+
+			$deleted = dn_bfs_report_label_rows( 'product', array( array( 'dim_value' => '0' ) ) );
+			dn_bfs_assert_same( '(deleted product)', $deleted[0]['label'] );
+			dn_bfs_assert_same( 'Facebook', dn_bfs_report_label_rows( 'source', array( array( 'dim_value' => 'Facebook' ) ) )[0]['label'] );
+		} finally {
+			wp_delete_post( $post_id, true );
 		}
-
-		$result = dn_bfs_report_breakdown( dn_bfs_it_breakdown_range( 3 ), 'product', array(), 'product_views', 'desc', 50 );
-		$labels = array_column( $result['rows'], 'label', 'dim_value' );
-
-		wp_delete_post( $post_id, true );
-
-		dn_bfs_assert_same( 'Label Test', $labels[ (string) $post_id ] );
-		dn_bfs_assert_same( '#' . $missing, $labels[ (string) $missing ] );
 	}
 );
 
