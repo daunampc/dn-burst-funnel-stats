@@ -116,19 +116,6 @@ function dn_bfs_parse_metrics( $value ) {
 	return array_values( array_unique( $metrics ) );
 }
 
-function dn_bfs_range_meta( $range ) {
-	return array(
-		'period'               => $range['period'],
-		'compare'              => $range['compare'],
-		'start'                => $range['custom_start'],
-		'end'                  => $range['custom_end'],
-		'label'                => $range['current_label'],
-		'range_label'          => $range['current_range_label'],
-		'compare_label'        => $range['compare_label'],
-		'previous_range_label' => $range['previous_range_label'],
-	);
-}
-
 function dn_bfs_params_from_query( $query ) {
 	$pick = function ( $key ) use ( $query ) {
 		return isset( $query[ $key ] ) && is_string( $query[ $key ] ) ? $query[ $key ] : '';

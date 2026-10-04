@@ -17,9 +17,6 @@ dn_bfs_it(
 		$default = dn_bfs_parse_range( array() );
 		dn_bfs_assert_same( 'yesterday', $default['period'] );
 		dn_bfs_assert_same( 'previous_period', $default['compare'] );
-
-		$meta = dn_bfs_range_meta( $custom );
-		dn_bfs_assert_same( array( 'period', 'compare', 'start', 'end', 'label', 'range_label', 'compare_label', 'previous_range_label' ), array_keys( $meta ) );
 	}
 );
 

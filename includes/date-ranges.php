@@ -25,14 +25,6 @@ function dn_bfs_get_date_presets() {
 	);
 }
 
-function dn_bfs_get_query_value( $key, $default = '' ) {
-	if ( ! isset( $_GET[ $key ] ) || is_array( $_GET[ $key ] ) ) {
-		return $default;
-	}
-
-	return wp_unslash( $_GET[ $key ] );
-}
-
 function dn_bfs_sanitize_date_period( $period ) {
 	$period = sanitize_key( $period );
 
@@ -51,30 +43,6 @@ function dn_bfs_sanitize_compare_mode( $compare ) {
 	$compare = sanitize_key( $compare );
 
 	return in_array( $compare, array( 'none', 'previous_period', 'previous_year' ), true ) ? $compare : 'previous_year';
-}
-
-function dn_bfs_get_request_period() {
-	$settings = function_exists( 'dn_bfs_get_tracking_settings' ) ? dn_bfs_get_tracking_settings() : array();
-	$default  = isset( $settings['default_date_range'] ) ? $settings['default_date_range'] : 'month_to_date';
-
-	if ( isset( $_GET['dn_period'] ) ) {
-		return dn_bfs_sanitize_date_period( dn_bfs_get_query_value( 'dn_period' ) );
-	}
-
-	if ( isset( $_GET['dn_range'] ) ) {
-		return dn_bfs_sanitize_date_period( dn_bfs_get_query_value( 'dn_range' ) );
-	}
-
-	return dn_bfs_sanitize_date_period( $default );
-}
-
-function dn_bfs_get_request_compare() {
-	$settings = function_exists( 'dn_bfs_get_tracking_settings' ) ? dn_bfs_get_tracking_settings() : array();
-	$default  = isset( $settings['default_compare'] ) ? $settings['default_compare'] : 'previous_year';
-
-	return isset( $_GET['dn_compare'] )
-		? dn_bfs_sanitize_compare_mode( dn_bfs_get_query_value( 'dn_compare' ) )
-		: dn_bfs_sanitize_compare_mode( $default );
 }
 
 function dn_bfs_parse_custom_date( $value, $fallback ) {
@@ -239,14 +207,5 @@ function dn_bfs_calculate_date_range( $period = '', $compare = '', $custom_start
 		'custom_start'         => $current_start_dt->format( 'Y-m-d' ),
 		'custom_end'           => $current_end_dt->format( 'Y-m-d' ),
 		'days'                 => $days,
-	);
-}
-
-function dn_bfs_get_range_data_from_request() {
-	return dn_bfs_calculate_date_range(
-		dn_bfs_get_request_period(),
-		dn_bfs_get_request_compare(),
-		dn_bfs_get_query_value( 'dn_start' ),
-		dn_bfs_get_query_value( 'dn_end' )
 	);
 }

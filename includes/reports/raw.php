@@ -210,12 +210,6 @@ function dn_bfs_raw_event_rows( $start, $end, $dimension, $filters ) {
 	);
 }
 
-function dn_bfs_raw_distinct_visitors( $start, $end, $filters, $new_only = false ) {
-	$counts = dn_bfs_raw_distinct_visitor_counts( $start, $end, $filters );
-
-	return $new_only ? $counts['new_visitors'] : $counts['visitors'];
-}
-
 function dn_bfs_raw_distinct_visitor_counts( $start, $end, $filters ) {
 	global $wpdb;
 

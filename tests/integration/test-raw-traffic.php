@@ -111,21 +111,3 @@ dn_bfs_it(
 		dn_bfs_assert_same( 1, $paid['product_views'] );
 	}
 );
-
-dn_bfs_it(
-	'distinct visitors across days counts a returning visitor once',
-	function () {
-		$first = dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 2 ), 'visitor_uid' => md5( 'same' ) ) );
-		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 1 ), 'visitor_uid' => md5( 'same' ), 'is_new_visitor' => 0 ) );
-		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 1 ), 'visitor_uid' => md5( 'other' ) ) );
-		unset( $first );
-
-		list( $start ) = dn_bfs_it_day_range( 2 );
-		list( , $end ) = dn_bfs_it_day_range( 1 );
-
-		dn_bfs_assert_same( 2, dn_bfs_raw_distinct_visitors( $start, $end, array() ) );
-		dn_bfs_assert_same( 2, dn_bfs_raw_distinct_visitors( $start, $end, array(), true ) );
-		dn_bfs_assert_same( 2, dn_bfs_raw_distinct_visitors( $start, $end, array( 'country' => 'VN', 'device' => 'desktop' ) ) );
-		dn_bfs_assert_same( 0, dn_bfs_raw_distinct_visitors( $start, $end, array( 'device' => 'mobile' ) ) );
-	}
-);

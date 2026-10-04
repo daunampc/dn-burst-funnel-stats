@@ -217,3 +217,18 @@ dn_bfs_it_today(
 		}
 	}
 );
+
+dn_bfs_it_today(
+	'distinct visitors across days counts a returning visitor once',
+	function () {
+		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 2 ), 'visitor_uid' => md5( 'same' ) ) );
+		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 1 ), 'visitor_uid' => md5( 'same' ), 'is_new_visitor' => 0 ) );
+		dn_bfs_it_seed_session( array( 'started_at' => dn_bfs_it_day_noon( 1 ), 'visitor_uid' => md5( 'other' ) ) );
+
+		$range = dn_bfs_it_range( 2, 1, 'none' );
+
+		dn_bfs_assert_same( 2, dn_bfs_report_summary( $range )['current']['visitors'] );
+		dn_bfs_assert_same( 2, dn_bfs_report_summary( $range, array( 'country' => 'VN', 'device' => 'desktop' ) )['current']['visitors'] );
+		dn_bfs_assert_same( 0, dn_bfs_report_summary( $range, array( 'device' => 'mobile' ) )['current']['visitors'] );
+	}
+);
