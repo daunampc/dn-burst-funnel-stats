@@ -13,10 +13,17 @@ function dn_bfs_dashboard_card_keys() {
 	return array( 'visitors', 'pageviews', 'sessions', 'new_returning', 'bounce_rate', 'avg_duration', 'pages_per_session', 'product_views', 'atc', 'checkouts', 'orders_aov', 'items_aoi', 'conversion_rate', 'sales_tip', 'paid_balance' );
 }
 
+/**
+ * Cards visible by default, in display order (mirrors the classic dashboard).
+ */
+function dn_bfs_dashboard_default_cards() {
+	return array( 'visitors', 'product_views', 'pageviews', 'atc', 'checkouts', 'orders_aov', 'items_aoi', 'conversion_rate', 'new_returning', 'sales_tip', 'sessions', 'paid_balance' );
+}
+
 function dn_bfs_get_user_cards( $user_id ) {
 	$cards = get_user_meta( (int) $user_id, 'dnbfs_cards', true );
 
-	return is_array( $cards ) ? array_values( array_intersect( $cards, dn_bfs_dashboard_card_keys() ) ) : dn_bfs_dashboard_card_keys();
+	return is_array( $cards ) ? array_values( array_intersect( $cards, dn_bfs_dashboard_card_keys() ) ) : dn_bfs_dashboard_default_cards();
 }
 
 function dn_bfs_save_user_cards( $user_id, $cards ) {

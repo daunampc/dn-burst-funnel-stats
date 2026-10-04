@@ -195,5 +195,10 @@
 		}
 	});
 
-	onVisibilityChange();
+	if (document.prerendering === true) {
+		// Speculative prerender: count the page only once it is actually activated.
+		document.addEventListener('prerenderingchange', onVisibilityChange, { once: true });
+	} else {
+		onVisibilityChange();
+	}
 })();

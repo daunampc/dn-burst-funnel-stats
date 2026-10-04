@@ -4,7 +4,7 @@ Tags: woocommerce, analytics, funnel, ecommerce, dashboard
 Requires at least: 6.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 3.1.0
+Stable tag: 3.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -130,6 +130,12 @@ Raw hits are aggregated into daily totals every hour. If WP-Cron is disabled, ma
 The plugin updates from GitHub releases. Create a release with a tag such as `v3.0.1` and attach the plugin zip (any `.zip` asset works; its top-level folder must be `dn-burst-funnel-stats/`).
 
 == Changelog ==
+
+= 3.1.1 =
+* The dashboard shows the same 12 cards as the classic dashboard by default (Visits, Product visits, Cart visits, Add to cart, Checkout, Orders / AOV, Items / AOI, Conversion rate, Created campaigns, Sales / Tip, Fulfillment orders, Paid / Balance); the other cards stay available under Customize and "Reset to default" restores this set.
+* The default date range is now Today. Sites still using the old Month to date default are moved to Today once on upgrade.
+* Expanded the bot list: AI crawlers, link previewers, uptime monitors, SEO crawlers, security scanners and HTTP libraries are no longer counted as visitors.
+* The tracker no longer records a pageview while the browser is prerendering a page; it waits until the page is actually shown.
 
 = 3.1.0 =
 * New public read-only REST API under `/wp-json/dnbfs/v1`: `meta`, `stats/summary`, `stats/timeseries`, `stats/breakdown`, `stats/funnel`, `stats/realtime` and `openapi.json`.

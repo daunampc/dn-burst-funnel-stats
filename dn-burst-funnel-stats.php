@@ -4,7 +4,7 @@
  * Plugin Name: DN Burst Funnel Stats
  * Plugin URI: https://github.com/daunampc/dn-burst-funnel-stats.git
  * Description: Funnel dashboard for WooCommerce with built-in visitor tracking and WooCommerce order metrics.
- * Version: 3.1.0
+ * Version: 3.1.1
  * Author: toshstack.dev
  * Author URI: https://toshstack.dev
  * Requires at least: 6.5
@@ -21,7 +21,7 @@ if (! defined('ABSPATH')) {
   exit;
 }
 
-define('DN_BURST_FUNNEL_STATS_VERSION', '3.1.0');
+define('DN_BURST_FUNNEL_STATS_VERSION', '3.1.1');
 define('DN_BURST_FUNNEL_STATS_FILE', __FILE__);
 define('DN_BURST_FUNNEL_STATS_PATH', plugin_dir_path(__FILE__));
 define('DN_BURST_FUNNEL_STATS_URL', plugin_dir_url(__FILE__));
@@ -32,7 +32,7 @@ define('DN_BURST_FUNNEL_STATS_URL', plugin_dir_url(__FILE__));
 define('DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats');
 
 define('DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '6');
+define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '7');
 
 /**
  * Load translations.
@@ -275,6 +275,16 @@ function dn_burst_funnel_stats_maybe_migrate()
 
   if (version_compare($current_schema, DN_BURST_FUNNEL_STATS_SCHEMA_VERSION, '>=')) {
     return;
+  }
+
+  // 3.1.1: the default date range changed from Month to date to Today. Move sites still on the old default.
+  if (version_compare($current_schema, '7', '<')) {
+    $stored = get_option('dn_burst_funnel_stats_tracking_settings', array());
+
+    if (is_array($stored) && isset($stored['default_date_range']) && 'month_to_date' === $stored['default_date_range']) {
+      $stored['default_date_range'] = 'today';
+      update_option('dn_burst_funnel_stats_tracking_settings', $stored, false);
+    }
   }
 
   update_option('dn_burst_funnel_stats_tracking_settings', dn_bfs_get_tracking_settings(), false);
