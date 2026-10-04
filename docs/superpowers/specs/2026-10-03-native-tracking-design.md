@@ -185,7 +185,7 @@ Drop các bảng `dnbfs_*`; xóa option `dn_burst_funnel_stats_*`, `dnbfs_*`, `d
 
 ## 7. Lớp báo cáo (`reports.php`)
 
-API PHP duy nhất cho dashboard (admin-ajax trong `includes/admin/ajax.php`) và REST công khai (Kế hoạch 4):
+API PHP duy nhất cho dashboard (admin-ajax trong `includes/admin/ajax.php`) và REST công khai (mục 9):
 - Mọi hàm nhận thêm `$filters` (mảng `dimension => value`, xem 8.3).
 - `dn_bfs_report_summary( $range, $filters )` → tổng các chỉ số + kỳ so sánh + % thay đổi.
 - `dn_bfs_report_timeseries( $range, $metrics, $filters )`.
@@ -224,20 +224,23 @@ Quyết định của chủ sản phẩm (2026-10-04): **không dùng React**. T
 - **≥ 2 bộ lọc**, hoặc **bộ lọc + breakdown theo dimension khác** → truy vấn bảng thô; chỉ hợp lệ khi toàn bộ khoảng nằm trong thời hạn dữ liệu thô. Ngoài thời hạn: API trả `422 filter_out_of_retention` cho chỉ số traffic; chỉ số đơn hàng/doanh thu vẫn tính được từ sự kiện `order` (attribution ghi kèm). Giao diện hiển thị thông báo giải thích.
 - Bộ lọc là tham số `filter[dimension]=value` trên mọi endpoint báo cáo (nội bộ và công khai).
 
-### 8.4 Settings (7 tab)
-Chung, Tracking, Chống spam, WooCommerce, GeoIP, Dữ liệu, Hệ thống — form PHP theo nhóm (`admin-post.php`), mỗi lần lưu gửi đủ khóa; license MaxMind luôn che; tab Dữ liệu có thống kê bảng, tổng hợp lại khoảng ngày, Export/Import settings, xóa toàn bộ dữ liệu (gõ `DELETE`); tab GeoIP có trạng thái + nút cập nhật; tab Hệ thống hiển thị các kiểm tra (bảng, schema, độ trễ tổng hợp, cron, endpoint `/collect`, tracker, GeoIP, file GeoIP công khai, proxy, phiên bản). Quản lý API key thuộc Kế hoạch 4.
+### 8.4 Settings (8 tab)
+Chung, Tracking, Chống spam, WooCommerce, GeoIP, Dữ liệu, Hệ thống, API — form PHP theo nhóm (`admin-post.php`), mỗi lần lưu gửi đủ khóa; license MaxMind luôn che; tab Dữ liệu có thống kê bảng, tổng hợp lại khoảng ngày, Export/Import settings, xóa toàn bộ dữ liệu (gõ `DELETE`); tab GeoIP có trạng thái + nút cập nhật; tab Hệ thống hiển thị các kiểm tra (bảng, schema, độ trễ tổng hợp, cron, endpoint `/collect`, REST API công khai, tracker, GeoIP, file GeoIP công khai, proxy, phiên bản). Tab API: danh sách key, tạo key (tên, scope, IP được phép, giới hạn tần suất; key đầy đủ hiện một lần), thu hồi (mục 9).
 
 ### 8.5 Widget trên WP Dashboard
 Render PHP: khách online, Visitors / Orders / Sales hôm nay so với hôm qua, link mở dashboard; số online tự làm mới 30 giây qua admin-ajax.
 
 ## 9. REST API công khai
 
-Namespace `/wp-json/dnbfs/v1/`, chỉ GET, dành cho gọi server-to-server (ví dụ NestJS).
+Namespace `/wp-json/dnbfs/v1/`, chỉ GET, dành cho gọi server-to-server (ví dụ NestJS). Code: `includes/api/keys.php` (lưu key), `includes/api/auth.php` (xác thực), `includes/api/routes.php` (route, tham số, envelope, cache), `includes/api/openapi.php`; quản lý key ở Settings → API (`includes/admin/api-keys-page.php`).
 
-- Xác thực: `Authorization: Bearer <key>` hoặc `X-DNBFS-Key: <key>`. Key dạng `dnbfs_<prefix8>_<secret32>`; chỉ hiện một lần; lưu `prefix` + `hash_hmac('sha256', key, wp_salt('auth'))`; so sánh bằng `hash_equals`.
-- Bắt buộc HTTPS trừ host localhost / `*.test` / `*.localhost`. Không gửi header CORS.
-- Giới hạn tần suất theo key (mặc định 60/phút) → `429` + `Retry-After`. Kết quả cache 60 giây theo (endpoint, tham số).
-- Mỗi request hợp lệ cập nhật `last_used_at` (tối đa 1 lần/phút).
+- Xác thực: `Authorization: Bearer <key>` hoặc `X-DNBFS-Key: <key>`; token Bearer chỉ được dùng khi bắt đầu bằng `dnbfs_` (nếu không thì dùng `X-DNBFS-Key`). Key dạng `dnbfs_<prefix8>_<secret32>` (prefix `[a-z0-9]`, secret `[A-Za-z0-9]`); chỉ hiện một lần sau khi tạo (transient 5 phút theo user, không bao giờ nằm trên URL); lưu `prefix` + `hash_hmac('sha256', key, wp_salt('auth'))`; so sánh bằng `hash_equals`. Key bị thu hồi → `401`.
+- Mỗi key: tên, scope (`stats:read`, `realtime:read`), IP/CIDR được phép (mỗi dòng một rule; rỗng = mọi IP), giới hạn 1–1000 request/phút (mặc định 60).
+- IP client cho allow-list dùng `dn_bfs_api_client_ip()`, không phụ thuộc cài đặt "Client IP source" của tracking: mặc định `REMOTE_ADDR`; `CF-Connecting-IP` chỉ khi `REMOTE_ADDR` thuộc dải Cloudflare (filter `dn_bfs_api_cloudflare_ranges`); `X-Forwarded-For` chỉ khi `REMOTE_ADDR` thuộc danh sách proxy tin cậy (filter `dn_bfs_api_trusted_proxies`, mặc định rỗng), duyệt phải→trái bỏ proxy tin cậy/Cloudflare và lấy hop đầu tiên không tin cậy.
+- Bắt buộc HTTPS trừ khi host của `home_url()` là `localhost`, `127.0.0.1`, `::1`, `*.test`, `*.localhost` (filter `dn_bfs_api_require_https`); vi phạm → `403 https_required`. Sau proxy kết thúc TLS, site phải tự đặt `$_SERVER['HTTPS']` (ví dụ từ `X-Forwarded-Proto` trong `wp-config.php`). Không gửi header CORS (gỡ `rest_send_cors_headers` và mọi header `Access-Control-*` cho các route này).
+- Giới hạn tần suất theo key, cửa sổ cố định 1 phút, bộ đếm nguyên tử (object cache bền: `wp_cache_add` + `wp_cache_incr`; không có: một option `dnbfs_api_rl_<id>` cập nhật bằng một `UPDATE`; không ghi được thì cho qua) → `429 rate_limited` + `Retry-After` (số giây tới phút kế tiếp). Request bị 401/403 không bị tính.
+- Kết quả thành công của `/stats/summary|timeseries|breakdown|funnel` cache 60 giây (filter `dn_bfs_api_cache_ttl`) theo (endpoint, tham số đã chuẩn hóa); `/stats/realtime`, `/meta`, `/openapi.json` không cache. Xóa toàn bộ dữ liệu (Settings → Dữ liệu) xóa luôn cache này.
+- Mỗi request đã xác thực cập nhật `last_used_at` (tối đa 1 lần/phút).
 
 | Endpoint | Quyền |
 |---|---|
@@ -249,9 +252,12 @@ Namespace `/wp-json/dnbfs/v1/`, chỉ GET, dành cho gọi server-to-server (ví
 | `GET /stats/realtime` | `realtime:read` |
 | `GET /openapi.json` | key hợp lệ bất kỳ |
 
-- Ngày `YYYY-MM-DD` theo múi giờ site; khoảng tối đa 366 ngày.
-- Phản hồi: `{ "data": …, "meta": { "timezone", "currency", "range": {start,end}, "estimated": bool } }`.
-- Lỗi: `401` key sai/thu hồi, `403` thiếu quyền hoặc IP không được phép, `422` tham số sai, `429` vượt giới hạn. Body lỗi: `{ "code", "message" }`.
+- `start`, `end` bắt buộc với `/stats/*` trừ realtime: `YYYY-MM-DD` theo múi giờ site; khoảng tối đa 366 ngày (tính cả hai đầu; dùng chung `dn_bfs_parse_range( $params, 366 )` với admin, admin 731).
+- `compare` chỉ áp dụng cho summary, mặc định `none`. `filter[dimension]=value` trên mọi `/stats/*` trừ realtime (mục 8.3). Timeseries: `metrics` mặc định `sessions,orders,revenue`. Breakdown: `dimension` bắt buộc, `orderby` là tên chỉ số, `order=asc|desc` (mặc định `desc`), `limit` 1–500 (mặc định 25), `page` ≥ 1.
+- Phản hồi: `{ "data": …, "meta": { "timezone", "currency", "range": {start,end} | null, "estimated": bool } }` (`range = null` cho `/meta` và `/stats/realtime`). `/openapi.json` trả thẳng tài liệu OpenAPI 3.0.3, không bọc envelope.
+- `data`: summary `{current, previous, change, previous_range}`; timeseries `{labels, series}`; breakdown `{dimension, rows, total, page, limit, pages}`; funnel `{steps: [{key, value}]}`; realtime `{online, pages, channels}`; meta `{api_version, plugin_version, site_url, key {name, prefix, scopes, rate_limit}, metrics, dimensions, filters, max_range_days, last_aggregated_date, raw_available_from}`.
+- Lỗi: `401 missing_key|invalid_key`, `403 insufficient_scope|ip_not_allowed|https_required`, `422` tham số sai (`invalid_date`, `range_too_long`, `invalid_compare`, `invalid_filter`, `invalid_metric`, `invalid_dimension`, `invalid_orderby`, `invalid_order`, `invalid_limit`, `invalid_page`, `filter_out_of_retention`), `429 rate_limited`. Body lỗi: `{ "code", "message" }`.
+- Tab Hệ thống kiểm tra `GET /meta` qua loopback trả `401 missing_key`.
 - README có ví dụ NestJS (`HttpService`, `Authorization: Bearer`).
 
 ## 10. Gỡ Burst và nâng cấp
@@ -287,7 +293,7 @@ includes/
   reports/raw.php
   admin/request.php        (tham số khoảng ngày/bộ lọc dùng chung cho AJAX, trang và REST sau này)
   admin/settings-model.php (nhóm Settings: đọc/lưu đủ khóa, che license)
-  admin/settings-page.php  (màn Settings: 7 tab, form admin-post, notice)
+  admin/settings-page.php  (màn Settings: 8 tab, form admin-post, notice)
   admin/data-tools.php     (tổng hợp lại, xóa dữ liệu, export/import, GeoIP, thống kê bảng)
   admin/system-status.php  (các kiểm tra của tab Hệ thống)
   admin/dashboard-data.php (payload thẻ, biểu đồ, funnel)
@@ -295,9 +301,11 @@ includes/
   admin/ajax.php           (handler admin-ajax cho dashboard)
   admin/menu.php           (menu, nạp assets, dnBfsAdmin)
   admin/dashboard-widget.php
-  api/auth.php             (Kế hoạch 4)
-  api/routes.php           (REST công khai, Kế hoạch 4)
-  api/openapi.php          (Kế hoạch 4)
+  admin/api-keys-page.php  (tab API: tạo / thu hồi key, hiện key một lần)
+  api/keys.php             (tạo, băm, tra cứu, thu hồi API key)
+  api/auth.php             (header key, HTTPS, IP được phép, scope, giới hạn tần suất, last_used)
+  api/routes.php           (REST công khai: route, tham số, envelope, cache, không CORS)
+  api/openapi.php          (tài liệu OpenAPI 3.0)
   date-ranges.php
   class-github-updater.php
 lib/maxmind-db/           (MaxMind\Db\Reader thuần PHP, Apache-2.0)

@@ -37,7 +37,70 @@ Funnel Stats → Dashboard shows customizable cards, sales / funnel / conversion
 
 = Settings =
 
-Funnel Stats → Settings has General, Tracking, Anti-spam, WooCommerce, GeoIP, Data and System tabs.
+Funnel Stats → Settings has General, Tracking, Anti-spam, WooCommerce, GeoIP, Data, System and API tabs.
+
+= Public REST API =
+
+Read-only statistics for your own servers, for example a NestJS backend. Create a key in Funnel Stats → Settings → API. The full key is shown once; only a hash is stored.
+
+* Base URL: `https://your-store.example/wp-json/dnbfs/v1`
+* Authentication: `Authorization: Bearer dnbfs_xxxxxxxx_…` or `X-DNBFS-Key: dnbfs_xxxxxxxx_…` (use the second header if your web server strips `Authorization`). A Bearer token is only read as the key when it starts with `dnbfs_`; otherwise the `X-DNBFS-Key` header is used.
+* HTTPS only, based on the site address (`home_url()`). Sites whose address is on `localhost`, `127.0.0.1`, `*.test` or `*.localhost` are exempt for development (filter `dn_bfs_api_require_https`). Behind a proxy or load balancer that terminates TLS, make WordPress see HTTPS, for example in `wp-config.php`: `if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ) { $_SERVER['HTTPS'] = 'on'; }`
+* No CORS headers are sent: call the API from a server, never from a browser.
+* Each key has scopes (`stats:read`, `realtime:read`), optional allowed IPs (one IP or CIDR range per line) and a rate limit (default 60 requests per minute, counted atomically per key). Over the limit the API answers 429 with a `Retry-After` header.
+* The IP allow-list uses the connection address (`REMOTE_ADDR`). `CF-Connecting-IP` is trusted only when the connection comes from a Cloudflare range (filter `dn_bfs_api_cloudflare_ranges`). `X-Forwarded-For` is trusted only when `REMOTE_ADDR` is a trusted proxy (filter `dn_bfs_api_trusted_proxies`, empty by default); the right-most address that is not a trusted proxy is used. This is independent of the "Client IP source" tracking setting.
+* Successful statistics are cached for 60 seconds. Realtime is never cached.
+
+Endpoints (all GET):
+
+* `/meta` – plugin, key and API limits (any key)
+* `/stats/summary?start=2026-09-01&end=2026-09-30&compare=previous_period` – totals; `compare` is `none` (default), `previous_period` or `previous_year` (`stats:read`)
+* `/stats/timeseries?start=…&end=…&metrics=sessions,orders,revenue` – one value per day (`stats:read`)
+* `/stats/breakdown?start=…&end=…&dimension=country&orderby=revenue&order=desc&limit=25&page=1` – table rows; `limit` is at most 500 (`stats:read`)
+* `/stats/funnel?start=…&end=…` – visitors → product views → add to cart → cart → checkout → orders (`stats:read`)
+* `/stats/realtime` – visitors online in the last 5 minutes (`realtime:read`)
+* `/openapi.json` – OpenAPI 3.0 description of all of the above (any key)
+
+Dates are `YYYY-MM-DD` in the store timezone, and a range covers at most 366 days. Add `filter[channel]=paid` (also `source`, `medium`, `campaign`, `device`, `country`) to any statistics endpoint except realtime. Two or more filters only work for dates that still have raw data.
+
+Responses look like this:
+
+    {
+      "data": { "current": { "visitors": 120, "orders": 4, "revenue": 1530000 }, "previous": null, "change": {}, "previous_range": null },
+      "meta": { "timezone": "Asia/Ho_Chi_Minh", "currency": "VND", "range": { "start": "2026-09-01", "end": "2026-09-30" }, "estimated": false }
+    }
+
+`estimated: true` means visitor counts were summed day by day because raw data for the whole range is no longer kept. Errors look like `{"code": "invalid_date", "message": "…"}` with status 401 (missing, invalid or revoked key), 403 (missing scope, IP not allowed or HTTPS required), 422 (invalid parameters) or 429 (rate limited).
+
+NestJS example (`@nestjs/axios`, `@nestjs/config`):
+
+    import { Injectable } from '@nestjs/common';
+    import { HttpService } from '@nestjs/axios';
+    import { ConfigService } from '@nestjs/config';
+    import { firstValueFrom } from 'rxjs';
+
+    @Injectable()
+    export class FunnelStatsService {
+      constructor(
+        private readonly http: HttpService,
+        private readonly config: ConfigService,
+      ) {}
+
+      async summary(start: string, end: string) {
+        const { data } = await firstValueFrom(
+          this.http.get(`${this.config.get('DNBFS_URL')}/wp-json/dnbfs/v1/stats/summary`, {
+            params: { start, end, compare: 'previous_period', 'filter[channel]': 'paid' },
+            headers: { Authorization: `Bearer ${this.config.get('DNBFS_API_KEY')}` },
+            timeout: 10000,
+          }),
+        );
+
+        // data.data.current.revenue, data.meta.currency, data.meta.estimated …
+        return data;
+      }
+    }
+
+On a 429 response, wait for the number of seconds in the `Retry-After` header before retrying.
 
 == Requirements ==
 
@@ -58,7 +121,7 @@ The plugin sets first-party cookies (`dnbfs_vid`, `dnbfs_sid`, `dnbfs_sm`) to re
 
 == Data and performance ==
 
-Raw hits are aggregated into daily totals every hour. If WP-Cron is disabled, make sure a system cron calls `wp-cron.php`. Settings → System shows the health of tracking, aggregation and GeoIP.
+Raw hits are aggregated into daily totals every hour. If WP-Cron is disabled, make sure a system cron calls `wp-cron.php`. Settings → System shows the health of tracking, aggregation, GeoIP and the public REST API.
 
 == GitHub Updates ==
 

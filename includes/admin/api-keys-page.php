@@ -177,7 +177,7 @@ function dn_bfs_render_settings_api() {
 						<th scope="row"><label for="dn_bfs_api_ips"><?php esc_html_e( 'Allowed IPs', 'dn-burst-funnel-stats' ); ?></label></th>
 						<td>
 							<textarea class="large-text code" rows="4" id="dn_bfs_api_ips" name="allowed_ips"></textarea>
-							<p class="description"><?php esc_html_e( 'One IP address or CIDR range per line. Leave empty to allow any IP. The client IP follows the "Client IP source" setting in the Tracking tab.', 'dn-burst-funnel-stats' ); ?></p>
+							<p class="description"><?php esc_html_e( 'One IP address or CIDR range per line. Leave empty to allow any IP. The client IP is the connection address; Cloudflare\'s CF-Connecting-IP is trusted only from Cloudflare ranges and X-Forwarded-For only from proxies listed by the dn_bfs_api_trusted_proxies filter.', 'dn-burst-funnel-stats' ); ?></p>
 						</td>
 					</tr>
 					<tr>
