@@ -45,12 +45,27 @@ function dn_bfs_api_key_hash( $key ) {
 	return hash_hmac( 'sha256', (string) $key, wp_salt( 'auth' ) );
 }
 
+/**
+ * Uniformly random string over $alphabet from a CSPRNG (not the filterable
+ * wp_generate_password(), which a random_password filter could weaken).
+ */
+function dn_bfs_api_random_string( $length, $alphabet ) {
+	$max = strlen( $alphabet ) - 1;
+	$out = '';
+
+	for ( $i = 0; $i < $length; $i++ ) {
+		$out .= $alphabet[ random_int( 0, $max ) ];
+	}
+
+	return $out;
+}
+
 function dn_bfs_api_generate_key() {
-	$prefix = strtolower( wp_generate_password( 8, false, false ) );
+	$prefix = dn_bfs_api_random_string( 8, 'abcdefghijklmnopqrstuvwxyz0123456789' );
 
 	return array(
 		'prefix' => $prefix,
-		'key'    => 'dnbfs_' . $prefix . '_' . wp_generate_password( 32, false, false ),
+		'key'    => 'dnbfs_' . $prefix . '_' . dn_bfs_api_random_string( 32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789' ),
 	);
 }
 

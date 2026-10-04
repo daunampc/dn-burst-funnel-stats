@@ -20,4 +20,17 @@ class ApiKeysTest extends TestCase {
 		$this->assertSame( array( 'realtime:read' ), dn_bfs_api_parse_scopes( array( 'realtime:read', array( 'x' ) ) ) );
 		$this->assertSame( array(), dn_bfs_api_parse_scopes( '' ) );
 	}
+
+	public function test_generated_keys_match_the_format_and_differ() {
+		$first  = dn_bfs_api_generate_key();
+		$second = dn_bfs_api_generate_key();
+
+		$this->assertSame( array( 'prefix' => $first['prefix'], 'secret' => substr( $first['key'], 15 ) ), dn_bfs_api_parse_key( $first['key'] ) );
+		$this->assertNotSame( $first['key'], $second['key'] );
+	}
+
+	public function test_random_string_uses_only_the_given_alphabet() {
+		$this->assertSame( 1, preg_match( '/^[ab]{200}$/', dn_bfs_api_random_string( 200, 'ab' ) ) );
+		$this->assertSame( 'zzzz', dn_bfs_api_random_string( 4, 'z' ) );
+	}
 }
