@@ -259,28 +259,103 @@ function dn_bfs_order_tip_total( $order, $keywords ) {
 	return $total;
 }
 
-function dn_bfs_raw_order_rows( $start, $end, $dimension, $filters ) {
+/**
+ * Per-order sale metrics, computed once per order and shared by every dimension.
+ *
+ * @return array{is_sale: bool, metrics: array, products: array} `products` maps
+ *               product id => metrics for sale orders (empty otherwise).
+ */
+function dn_bfs_raw_order_metrics( $order, $settings, $with_products ) {
+	$status      = dn_bfs_order_status_key( $order );
+	$is_sale     = ! in_array( $status, $settings['sales_excluded_statuses'], true );
+	$order_total = (float) $order->get_total();
+	$metrics     = array_fill_keys( dn_bfs_order_columns(), 0 );
+	$products    = array();
+
+	if ( $is_sale ) {
+		$metrics['orders']  = 1;
+		$metrics['revenue'] = max( 0.0, $order_total - (float) $order->get_total_refunded() );
+		$metrics['items']   = (int) $order->get_item_count();
+		$metrics['tips']    = dn_bfs_order_tip_total( $order, $settings['tip_keywords'] );
+	}
+
+	if ( in_array( $status, $settings['paid_statuses'], true ) ) {
+		$metrics['paid'] = $order_total;
+	}
+
+	if ( in_array( $status, $settings['balance_statuses'], true ) ) {
+		$metrics['balance'] = $order_total;
+	}
+
+	if ( $is_sale && $with_products ) {
+		foreach ( $order->get_items() as $item ) {
+			$key = (string) (int) $item->get_product_id();
+
+			if ( ! isset( $products[ $key ] ) ) {
+				$products[ $key ] = array(
+					'orders'  => 1,
+					'revenue' => 0.0,
+					'items'   => 0,
+				);
+			}
+
+			// Product revenue = line totals after discounts minus item refunds, excluding tax/shipping/fees.
+			$products[ $key ]['revenue'] += max( 0.0, (float) $item->get_total() - abs( (float) $order->get_total_refunded_for_item( $item->get_id() ) ) );
+			$products[ $key ]['items']   += max( 0, (int) $item->get_quantity() - abs( (int) $order->get_qty_refunded_for_item( $item->get_id() ) ) );
+		}
+	}
+
+	return array(
+		'is_sale'  => $is_sale,
+		'metrics'  => $metrics,
+		'products' => $products,
+	);
+}
+
+/**
+ * Order rows for several dimensions from ONE query over the range's order
+ * events: each order is loaded and measured once, then fanned out.
+ *
+ * @return array dimension => ( dim_value => metrics ).
+ */
+function dn_bfs_raw_order_rows_query( $start, $end, $dimensions, $filters ) {
 	global $wpdb;
 
-	if ( 'page' === $dimension ) {
-		return array();
+	$columns = array();
+	$selects = array( 'e.order_id' );
+	$out     = array();
+
+	foreach ( array_values( (array) $dimensions ) as $index => $dimension ) {
+		$out[ $dimension ] = array();
+
+		if ( 'page' === $dimension ) {
+			continue;
+		}
+
+		if ( 'product' === $dimension ) {
+			$columns[ $dimension ] = '';
+			continue;
+		}
+
+		$column = 'total' === $dimension ? "''" : dn_bfs_raw_event_column( $dimension );
+
+		if ( '' === $column ) {
+			continue;
+		}
+
+		$columns[ $dimension ] = 'dim_' . $index;
+		$selects[]             = "{$column} AS dim_{$index}";
 	}
 
-	$column = 'total' === $dimension ? "''" : dn_bfs_raw_event_column( $dimension );
-
-	if ( '' === $column ) {
-		return array();
-	}
-
-	if ( 'product' === $dimension ) {
-		$column = "''";
+	if ( empty( $columns ) ) {
+		return $out;
 	}
 
 	// Orders are confirmed revenue: spam sessions are not excluded here.
 	$results = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT e.order_id, {$column} AS dim_value
-			FROM " . dn_bfs_table( 'events' ) . ' e LEFT JOIN ' . dn_bfs_table( 'sessions' ) . " s ON s.id = e.session_id
+			'SELECT ' . implode( ', ', $selects ) . '
+			FROM ' . dn_bfs_table( 'events' ) . ' e LEFT JOIN ' . dn_bfs_table( 'sessions' ) . " s ON s.id = e.session_id
 			WHERE e.type = 'order' AND e.time >= %d AND e.time < %d" . dn_bfs_raw_filter_sql( $filters, 'e' ),
 			(int) $start,
 			(int) $end
@@ -288,8 +363,8 @@ function dn_bfs_raw_order_rows( $start, $end, $dimension, $filters ) {
 		ARRAY_A
 	);
 
-	$settings = dn_bfs_get_wc_report_settings();
-	$sums     = array();
+	$settings      = dn_bfs_get_wc_report_settings();
+	$with_products = isset( $columns['product'] );
 
 	foreach ( (array) $results as $result ) {
 		$order = dn_bfs_raw_get_order( (int) $result['order_id'] );
@@ -298,60 +373,49 @@ function dn_bfs_raw_order_rows( $start, $end, $dimension, $filters ) {
 			continue;
 		}
 
-		$status   = dn_bfs_order_status_key( $order );
-		$is_sale  = ! in_array( $status, $settings['sales_excluded_statuses'], true );
-		$order_total = (float) $order->get_total();
+		$measured = dn_bfs_raw_order_metrics( $order, $settings, $with_products );
 
-		if ( 'product' === $dimension ) {
-			if ( ! $is_sale ) {
-				continue;
-			}
+		foreach ( $columns as $dimension => $alias ) {
+			$adds = 'product' === $dimension ? $measured['products'] : array( (string) $result[ $alias ] => $measured['metrics'] );
 
-			$seen = array();
+			foreach ( $adds as $key => $metrics ) {
+				$key = (string) $key;
 
-			foreach ( $order->get_items() as $item ) {
-				$key = (string) (int) $item->get_product_id();
-
-				if ( ! isset( $sums[ $key ] ) ) {
-					$sums[ $key ] = dn_bfs_empty_metrics();
+				if ( ! isset( $out[ $dimension ][ $key ] ) ) {
+					$out[ $dimension ][ $key ] = dn_bfs_empty_metrics();
 				}
 
-				if ( ! isset( $seen[ $key ] ) ) {
-					$sums[ $key ]['orders']++;
-					$seen[ $key ] = true;
+				foreach ( $metrics as $column => $value ) {
+					$out[ $dimension ][ $key ][ $column ] += $value;
 				}
-
-				// Product revenue = line totals after discounts minus item refunds, excluding tax/shipping/fees.
-				$sums[ $key ]['revenue'] += max( 0.0, (float) $item->get_total() - abs( (float) $order->get_total_refunded_for_item( $item->get_id() ) ) );
-				$sums[ $key ]['items']   += max( 0, (int) $item->get_quantity() - abs( (int) $order->get_qty_refunded_for_item( $item->get_id() ) ) );
 			}
-
-			continue;
-		}
-
-		$key = (string) $result['dim_value'];
-
-		if ( ! isset( $sums[ $key ] ) ) {
-			$sums[ $key ] = dn_bfs_empty_metrics();
-		}
-
-		if ( $is_sale ) {
-			$sums[ $key ]['orders']++;
-			$sums[ $key ]['revenue'] += max( 0.0, $order_total - (float) $order->get_total_refunded() );
-			$sums[ $key ]['items']   += (int) $order->get_item_count();
-			$sums[ $key ]['tips']    += dn_bfs_order_tip_total( $order, $settings['tip_keywords'] );
-		}
-
-		if ( in_array( $status, $settings['paid_statuses'], true ) ) {
-			$sums[ $key ]['paid'] += $order_total;
-		}
-
-		if ( in_array( $status, $settings['balance_statuses'], true ) ) {
-			$sums[ $key ]['balance'] += $order_total;
 		}
 	}
 
-	return array_map( 'dn_bfs_normalize_metrics', $sums );
+	foreach ( $out as $dimension => $rows ) {
+		$out[ $dimension ] = array_map( 'dn_bfs_normalize_metrics', $rows );
+	}
+
+	return $out;
+}
+
+function dn_bfs_raw_order_rows_multi( $start, $end, array $dimensions ) {
+	return dn_bfs_raw_order_rows_query( $start, $end, $dimensions, array() );
+}
+
+function dn_bfs_raw_order_rows( $start, $end, $dimension, $filters ) {
+	$rows = dn_bfs_raw_order_rows_query( $start, $end, array( $dimension ), $filters );
+
+	return $rows[ $dimension ];
+}
+
+function dn_bfs_raw_merge_rows( $rows, $more ) {
+	foreach ( $more as $key => $metrics ) {
+		$key          = (string) $key;
+		$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
+	}
+
+	return $rows;
 }
 
 function dn_bfs_raw_rows( $start, $end, $dimension, $filters ) {
@@ -362,10 +426,7 @@ function dn_bfs_raw_rows( $start, $end, $dimension, $filters ) {
 	$rows = array();
 
 	foreach ( array( 'dn_bfs_raw_traffic_rows', 'dn_bfs_raw_event_rows', 'dn_bfs_raw_order_rows' ) as $source ) {
-		foreach ( call_user_func( $source, $start, $end, $dimension, $filters ) as $key => $metrics ) {
-			$key          = (string) $key;
-			$rows[ $key ] = isset( $rows[ $key ] ) ? dn_bfs_add_metrics( $rows[ $key ], $metrics ) : $metrics;
-		}
+		$rows = dn_bfs_raw_merge_rows( $rows, call_user_func( $source, $start, $end, $dimension, $filters ) );
 	}
 
 	return $rows;

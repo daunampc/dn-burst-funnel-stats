@@ -33,6 +33,9 @@ function dn_bfs_raw_available_from( $now ) {
 	return '' === $last ? $cutoff : min( $cutoff, dn_bfs_date_shift( $last, 1 ) );
 }
 
+/**
+ * @return bool False when any INSERT failed.
+ */
 function dn_bfs_daily_write_rows( $date, $dimension, $rows, $columns = array() ) {
 	global $wpdb;
 
@@ -62,7 +65,7 @@ function dn_bfs_daily_write_rows( $date, $dimension, $rows, $columns = array() )
 			}
 		}
 
-		$wpdb->query(
+		$written = $wpdb->query(
 			$wpdb->prepare(
 				"INSERT INTO {$table} (date, dimension, dim_hash, dim_value, " . implode( ', ', $columns ) . ')
 				VALUES ' . implode( ', ', $tuples ) . '
@@ -70,12 +73,21 @@ function dn_bfs_daily_write_rows( $date, $dimension, $rows, $columns = array() )
 				$args
 			)
 		);
+
+		if ( false === $written ) {
+			return false;
+		}
 	}
+
+	return true;
 }
 
 /**
+ * Rebuilds one day of dnbfs_daily inside a transaction (all or nothing).
+ *
  * @param string|null $raw_from First date with raw data; pass the value computed
  *                              before a run moves the watermark.
+ * @return string|false 'full', 'orders', or false when a write failed (rolled back).
  */
 function dn_bfs_aggregate_day( $date, $now, $raw_from = null ) {
 	global $wpdb;
@@ -84,39 +96,56 @@ function dn_bfs_aggregate_day( $date, $now, $raw_from = null ) {
 
 	list( $start, $end ) = dn_bfs_day_bounds( $date );
 	$table               = dn_bfs_table( 'daily' );
+	$raw_from            = null === $raw_from ? dn_bfs_raw_available_from( $now ) : (string) $raw_from;
+	$mode                = $date >= $raw_from ? 'full' : 'orders';
+	$ok                  = true;
 
-	$raw_from = null === $raw_from ? dn_bfs_raw_available_from( $now ) : (string) $raw_from;
+	if ( 'full' === $mode ) {
+		$dimensions = dn_bfs_aggregate_dimensions();
+		$orders     = dn_bfs_raw_order_rows_multi( $start, $end, $dimensions );
+		$writes     = array();
 
-	if ( $date >= $raw_from ) {
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE date = %s AND dimension <> 'blocked'", $date ) );
-
-		foreach ( dn_bfs_aggregate_dimensions() as $dimension ) {
-			dn_bfs_daily_write_rows( $date, $dimension, dn_bfs_raw_rows( $start, $end, $dimension, array() ) );
+		foreach ( $dimensions as $dimension ) {
+			$rows                 = dn_bfs_raw_merge_rows( dn_bfs_raw_traffic_rows( $start, $end, $dimension, array() ), dn_bfs_raw_event_rows( $start, $end, $dimension, array() ) );
+			$writes[ $dimension ] = dn_bfs_raw_merge_rows( $rows, $orders[ $dimension ] );
 		}
 
-		return 'full';
+		$wpdb->query( 'START TRANSACTION' );
+		$ok = false !== $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE date = %s AND dimension <> 'blocked'", $date ) );
+
+		foreach ( $writes as $dimension => $rows ) {
+			$ok = $ok && dn_bfs_daily_write_rows( $date, $dimension, $rows );
+		}
+	} else {
+		// Raw traffic is gone; order events are kept forever, so only order columns of order dimensions are rebuilt.
+		$resets     = array();
+		$dimensions = dn_bfs_order_dimensions();
+		$orders     = dn_bfs_raw_order_rows_multi( $start, $end, $dimensions );
+
+		foreach ( dn_bfs_order_columns() as $column ) {
+			$resets[] = "{$column} = 0";
+		}
+
+		$wpdb->query( 'START TRANSACTION' );
+		$ok = false !== $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table} SET " . implode( ', ', $resets ) . " WHERE date = %s AND dimension <> 'blocked' AND dimension IN (" . implode( ', ', array_fill( 0, count( $dimensions ), '%s' ) ) . ')',
+				array_merge( array( $date ), $dimensions )
+			)
+		);
+
+		foreach ( $dimensions as $dimension ) {
+			$ok = $ok && dn_bfs_daily_write_rows( $date, $dimension, $orders[ $dimension ], dn_bfs_order_columns() );
+		}
 	}
 
-	// Raw traffic is gone; order events are kept forever, so only order columns of order dimensions are rebuilt.
-	$resets     = array();
-	$dimensions = dn_bfs_order_dimensions();
+	if ( ! $ok || false === $wpdb->query( 'COMMIT' ) ) {
+		$wpdb->query( 'ROLLBACK' );
 
-	foreach ( dn_bfs_order_columns() as $column ) {
-		$resets[] = "{$column} = 0";
+		return false;
 	}
 
-	$wpdb->query(
-		$wpdb->prepare(
-			"UPDATE {$table} SET " . implode( ', ', $resets ) . " WHERE date = %s AND dimension <> 'blocked' AND dimension IN (" . implode( ', ', array_fill( 0, count( $dimensions ), '%s' ) ) . ')',
-			array_merge( array( $date ), $dimensions )
-		)
-	);
-
-	foreach ( $dimensions as $dimension ) {
-		dn_bfs_daily_write_rows( $date, $dimension, dn_bfs_raw_order_rows( $start, $end, $dimension, array() ), dn_bfs_order_columns() );
-	}
-
-	return 'orders';
+	return $mode;
 }
 
 function dn_bfs_is_date_string( $date ) {
@@ -314,10 +343,12 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 
 	$run_day = function ( $date ) use ( &$processed, &$stop, &$lock, $now, $raw_from ) {
 		dn_bfs_raw_get_order( 0, true );
-		dn_bfs_aggregate_day( $date, $now, $raw_from );
+		$ok          = false !== dn_bfs_aggregate_day( $date, $now, $raw_from );
 		$processed[] = $date;
 		$lock        = dn_bfs_aggregate_lock_refresh( $lock, dn_bfs_now() );
 		$stop        = false === $lock;
+
+		return $ok;
 	};
 
 	for ( $cursor = dn_bfs_date_shift( $last, 1 ); $cursor <= $yesterday && count( $processed ) < $max_days && $can_start(); $cursor = dn_bfs_date_shift( $cursor, 1 ) ) {
@@ -343,7 +374,12 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 		}
 
 		delete_option( 'dnbfs_dirty_' . $date );
-		$run_day( $date );
+
+		if ( ! $run_day( $date ) ) {
+			// Keep it queued so the next run retries the rebuild.
+			add_option( 'dnbfs_dirty_' . $date, 1, '', 'no' );
+		}
+
 		$done++;
 	}
 

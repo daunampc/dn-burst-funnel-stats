@@ -329,3 +329,42 @@ dn_bfs_it(
 		dn_bfs_assert_same( 1, dn_bfs_report_summary( array( 'current_start' => $start, 'current_end' => $end - 1, 'compare' => 'none' ) )['current']['sessions'] );
 	}
 );
+
+function dn_bfs_it_fail_daily_inserts( $query ) {
+	return 0 === strpos( ltrim( $query ), 'INSERT INTO ' . dn_bfs_table( 'daily' ) ) ? '' : $query;
+}
+
+dn_bfs_it(
+	'a failed daily write rolls the day back and keeps the date dirty',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+
+		$yesterday = dn_bfs_date_shift( wp_date( 'Y-m-d', time() ), -1 );
+		$day_ts    = dn_bfs_it_day_noon( 3 );
+		$date      = wp_date( 'Y-m-d', $day_ts );
+		dn_bfs_it_seed_session( array( 'started_at' => $day_ts ) );
+		dn_bfs_assert_same( 'full', dn_bfs_aggregate_day( $date, time() ) );
+
+		dn_bfs_it_seed_session( array( 'started_at' => $day_ts + 60 ) );
+		update_option( 'dnbfs_last_aggregated_date', $yesterday, false );
+		dn_bfs_mark_dirty_date( $date );
+
+		add_filter( 'query', 'dn_bfs_it_fail_daily_inserts' );
+
+		try {
+			dn_bfs_assert_same( false, dn_bfs_aggregate_day( $date, time() ), 'aggregate_day result' );
+			dn_bfs_assert_same( '1', dn_bfs_it_daily( $date, 'total' )['sessions'], 'rolled back' );
+
+			dn_bfs_aggregate_run( time() );
+		} finally {
+			remove_filter( 'query', 'dn_bfs_it_fail_daily_inserts' );
+		}
+
+		dn_bfs_assert_same( '1', dn_bfs_it_daily( $date, 'total' )['sessions'], 'rolled back in run' );
+		dn_bfs_assert_same( array( $date ), dn_bfs_get_dirty_dates() );
+
+		dn_bfs_aggregate_run( time() );
+		dn_bfs_assert_same( '2', dn_bfs_it_daily( $date, 'total' )['sessions'], 'retried' );
+		dn_bfs_assert_same( array(), dn_bfs_get_dirty_dates() );
+	}
+);

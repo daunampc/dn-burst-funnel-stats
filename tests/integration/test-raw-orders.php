@@ -170,3 +170,50 @@ dn_bfs_it(
 		dn_bfs_assert_same( array(), dn_bfs_raw_rows( $start, $end, 'nope', array() ) );
 	}
 );
+
+dn_bfs_it(
+	'multi-dimension order rows and the aggregated day match per-dimension order rows',
+	function () {
+		dn_bfs_raw_get_order( 0, true );
+		delete_option( 'dnbfs_last_aggregated_date' );
+
+		$product = dn_bfs_it_first_product();
+		$day     = dn_bfs_it_day_noon( 1 );
+		$date    = wp_date( 'Y-m-d', $day );
+		$paid    = dn_bfs_it_seed_session( array( 'started_at' => $day, 'channel' => 'paid', 'browser' => 'Safari' ) );
+		$direct  = dn_bfs_it_seed_session( array( 'started_at' => $day, 'channel' => 'direct', 'browser' => 'Chrome' ) );
+
+		$first  = dn_bfs_it_order( $product, 2, 'processing', 3.0 );
+		$second = dn_bfs_it_order( $product, 1, 'pending' );
+		$third  = dn_bfs_it_order( $product, 4, 'completed' );
+		wc_create_refund( array( 'order_id' => $third->get_id(), 'amount' => 2 ) );
+
+		dn_bfs_it_seed_event( $paid, 'order', $day, array( 'order_id' => $first->get_id() ) );
+		dn_bfs_it_seed_event( $paid, 'order', $day + 1, array( 'order_id' => $second->get_id() ) );
+		dn_bfs_it_seed_event( $direct, 'order', $day + 2, array( 'order_id' => $third->get_id() ) );
+		dn_bfs_raw_get_order( 0, true );
+
+		list( $start, $end ) = dn_bfs_it_day_range( 1 );
+		$dimensions          = array( 'total', 'channel', 'browser', 'product' );
+		$multi               = dn_bfs_raw_order_rows_multi( $start, $end, $dimensions );
+
+		dn_bfs_assert_same( 2, count( $multi['channel'] ) );
+
+		foreach ( $dimensions as $dimension ) {
+			$expected = dn_bfs_raw_order_rows( $start, $end, $dimension, array() );
+			dn_bfs_assert_same( $expected, $multi[ $dimension ], $dimension );
+		}
+
+		dn_bfs_assert_same( 'full', dn_bfs_aggregate_day( $date, time() ) );
+
+		foreach ( $dimensions as $dimension ) {
+			foreach ( dn_bfs_raw_order_rows( $start, $end, $dimension, array() ) as $value => $metrics ) {
+				$row = $GLOBALS['wpdb']->get_row( $GLOBALS['wpdb']->prepare( 'SELECT * FROM ' . dn_bfs_table( 'daily' ) . ' WHERE date = %s AND dimension = %s AND dim_hash = %s', $date, $dimension, md5( (string) $value ) ), ARRAY_A );
+
+				foreach ( dn_bfs_order_columns() as $column ) {
+					dn_bfs_assert_same( $metrics[ $column ], dn_bfs_normalize_metrics( $row )[ $column ], $dimension . '/' . $value . '/' . $column );
+				}
+			}
+		}
+	}
+);
