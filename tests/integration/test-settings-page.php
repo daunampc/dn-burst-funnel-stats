@@ -239,3 +239,43 @@ dn_bfs_it(
 		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
 	}
 );
+
+dn_bfs_it(
+	'reordering the same WooCommerce statuses or tip keywords is not a rule change',
+	function () {
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
+		$post = array( 'dn_bfs' => dn_bfs_it_group_values( 'woocommerce' ) );
+
+		$post['dn_bfs']['tip_keywords'] = implode( "\n", $post['dn_bfs']['tip_keywords'] );
+		dn_bfs_settings_save_from_post( 'woocommerce', $post );
+
+		$post['dn_bfs']['sales_excluded_statuses'] = array_reverse( $post['dn_bfs']['sales_excluded_statuses'] );
+		$post['dn_bfs']['tip_keywords']            = implode( "\n", array_reverse( explode( "\n", $post['dn_bfs']['tip_keywords'] ) ) );
+		dn_bfs_assert_same( 'saved', dn_bfs_settings_save_from_post( 'woocommerce', $post ), 'same rules, other order' );
+
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
+	}
+);
+
+dn_bfs_it(
+	'importing changed WooCommerce revenue rules yields the re-aggregate notice',
+	function () {
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
+		$export = dn_bfs_export_settings();
+
+		dn_bfs_assert_same( 'imported', dn_bfs_settings_import_notice( $export ), 'unchanged' );
+
+		$reordered = $export;
+		$reordered['settings']['woocommerce_report']['paid_statuses'] = array_reverse( $export['settings']['woocommerce_report']['paid_statuses'] );
+		dn_bfs_assert_same( 'imported', dn_bfs_settings_import_notice( $reordered ), 'same rules, other order' );
+
+		$changed = $export;
+		$changed['settings']['woocommerce_report']['paid_statuses'] = array( 'wc-completed' );
+		dn_bfs_assert_same( 'imported_wc_rules', dn_bfs_settings_import_notice( $changed ), 'changed' );
+
+		dn_bfs_assert_same( 'invalid_import', dn_bfs_settings_import_notice( array( 'meta' => array( 'plugin' => 'x' ) ) ) );
+		dn_bfs_assert_same( 'warning', dn_bfs_settings_notice( 'imported_wc_rules' )[0] );
+
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
+	}
+);

@@ -65,6 +65,8 @@ function dn_bfs_admin_script_data() {
 			'symbol'   => html_entity_decode( function_exists( 'get_woocommerce_currency_symbol' ) ? get_woocommerce_currency_symbol() : '$', ENT_QUOTES, 'UTF-8' ),
 			'position' => function_exists( 'get_option' ) ? (string) get_option( 'woocommerce_currency_pos', 'left' ) : 'left',
 			'decimals' => function_exists( 'wc_get_price_decimals' ) ? (int) wc_get_price_decimals() : 2,
+			'thousand' => function_exists( 'wc_get_price_thousand_separator' ) ? wc_get_price_thousand_separator() : ',',
+			'decimal'  => function_exists( 'wc_get_price_decimal_separator' ) ? wc_get_price_decimal_separator() : '.',
 		),
 		'strings'      => array(
 			'sales'          => __( 'Sales', 'dn-burst-funnel-stats' ),

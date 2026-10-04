@@ -137,13 +137,16 @@ function dn_bfs_settings_input_from_post( $group, $post ) {
 
 function dn_bfs_wc_revenue_rules() {
 	$settings = dn_bfs_get_wc_report_settings();
+	$rules    = array();
 
-	return array(
-		'sales_excluded_statuses' => $settings['sales_excluded_statuses'],
-		'paid_statuses'           => $settings['paid_statuses'],
-		'balance_statuses'        => $settings['balance_statuses'],
-		'tip_keywords'            => $settings['tip_keywords'],
-	);
+	// Sorted so that the same statuses or keywords in another order are not a rule change.
+	foreach ( array( 'sales_excluded_statuses', 'paid_statuses', 'balance_statuses', 'tip_keywords' ) as $key ) {
+		$list = array_values( (array) $settings[ $key ] );
+		sort( $list );
+		$rules[ $key ] = $list;
+	}
+
+	return $rules;
 }
 
 function dn_bfs_settings_save_from_post( $group, $post ) {
@@ -182,6 +185,17 @@ function dn_bfs_reaggregate_outcome( $result ) {
 	return array( 'tab' => 'data', 'notice' => 'reaggregated' );
 }
 
+function dn_bfs_settings_import_notice( $payload ) {
+	$before = dn_bfs_wc_revenue_rules();
+	$result = dn_bfs_import_settings( $payload );
+
+	if ( is_wp_error( $result ) ) {
+		return $result->get_error_code();
+	}
+
+	return dn_bfs_wc_revenue_rules() !== $before ? 'imported_wc_rules' : 'imported';
+}
+
 function dn_bfs_settings_data_task( $task, $post, $files ) {
 	switch ( $task ) {
 		case 'reaggregate':
@@ -201,14 +215,7 @@ function dn_bfs_settings_data_task( $task, $post, $files ) {
 				return array( 'tab' => 'data', 'notice' => 'missing_file' );
 			}
 
-			$before = dn_bfs_wc_revenue_rules();
-			$result = dn_bfs_import_settings( json_decode( (string) file_get_contents( $files['import_file']['tmp_name'] ), true ) );
-
-			if ( is_wp_error( $result ) ) {
-				return array( 'tab' => 'data', 'notice' => $result->get_error_code() );
-			}
-
-			return array( 'tab' => 'data', 'notice' => dn_bfs_wc_revenue_rules() !== $before ? 'imported_wc_rules' : 'imported' );
+			return array( 'tab' => 'data', 'notice' => dn_bfs_settings_import_notice( json_decode( (string) file_get_contents( $files['import_file']['tmp_name'] ), true ) ) );
 		case 'geoip_update':
 			$result = dn_bfs_geoip_update_now();
 

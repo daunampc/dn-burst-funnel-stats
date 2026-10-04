@@ -297,6 +297,18 @@
 		return $('<div>').text(value == null ? '' : String(value)).html();
 	}
 
+	function formatNumber(value, minPlaces, maxPlaces, thousand, decimal) {
+		var parts = Number(value).toFixed(maxPlaces).split('.');
+		var whole = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousand);
+		var fraction = parts.length > 1 ? parts[1] : '';
+
+		while (fraction.length > minPlaces && fraction.charAt(fraction.length - 1) === '0') {
+			fraction = fraction.slice(0, -1);
+		}
+
+		return fraction ? whole + decimal + fraction : whole;
+	}
+
 	function formatValue(value, format) {
 		var number = Number(value) || 0;
 		var abs = Math.abs(number);
@@ -307,10 +319,13 @@
 			var places = currency.decimals == null ? 2 : Number(currency.decimals);
 			var symbol = currency.symbol || '$';
 			var position = currency.position || 'left';
-			var text = Math.abs(number).toLocaleString(undefined, {
-				minimumFractionDigits: abs > 0 && abs < 10 ? places : 0,
-				maximumFractionDigits: places
-			});
+			var text = formatNumber(
+				abs,
+				abs > 0 && abs < 10 ? places : 0,
+				places,
+				currency.thousand == null ? ',' : String(currency.thousand),
+				currency.decimal == null ? '.' : String(currency.decimal)
+			);
 
 			if (position === 'right') {
 				text = text + symbol;

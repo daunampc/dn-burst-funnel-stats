@@ -141,3 +141,48 @@ dn_bfs_it_today(
 		dn_bfs_assert_same( $plain( $paidv ) . ' / ' . $plain( (float) $pending->get_total() ), wp_strip_all_tags( $cards['paid_balance']['main'] ), 'paid net of refund / balance' );
 	}
 );
+
+dn_bfs_it_today(
+	'refunding the tip fee line keeps tips gross and lowers sales',
+	function () {
+		dn_bfs_raw_get_order( 0, true );
+
+		$now     = dn_bfs_it_now();
+		$product = (int) wc_get_products( array( 'limit' => 1, 'status' => 'publish', 'orderby' => 'ID', 'order' => 'ASC', 'return' => 'ids' ) )[0];
+		$price   = (float) wc_get_product( $product )->get_price();
+		$session = dn_bfs_it_seed_session( array( 'started_at' => $now - 120 ) );
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $product ), 1 );
+		$fee = new WC_Order_Item_Fee();
+		$fee->set_name( 'Tip' );
+		$fee->set_total( 3.0 );
+		$order->add_item( $fee );
+		$order->calculate_totals();
+		$order->set_status( 'processing' );
+		$order->save();
+
+		$fee_id = (int) array_keys( $order->get_items( 'fee' ) )[0];
+		dn_bfs_it_seed_event( $session, 'order', $now - 60, array( 'order_id' => $order->get_id() ) );
+		wc_create_refund(
+			array(
+				'order_id'   => $order->get_id(),
+				'amount'     => 3.0,
+				'line_items' => array(
+					$fee_id => array(
+						'qty'          => 0,
+						'refund_total' => 3.0,
+						'refund_tax'   => array(),
+					),
+				),
+			)
+		);
+		dn_bfs_raw_get_order( 0, true );
+
+		$summary = dn_bfs_report_summary( dn_bfs_calculate_date_range( 'today', 'none' ) );
+
+		dn_bfs_assert_same( 3.0, (float) wc_get_order( $order->get_id() )->get_total_refunded(), 'the refund hit the order' );
+		dn_bfs_assert_same( 3.0, (float) $summary['current']['tips'], 'tip stays gross after its own fee line is refunded' );
+		dn_bfs_assert_same( round( $price, 2 ), round( (float) $summary['current']['revenue'], 2 ), 'sales are net of the refunded tip' );
+	}
+);

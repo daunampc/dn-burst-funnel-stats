@@ -63,3 +63,23 @@ dn_bfs_it(
 		dn_bfs_assert_true( ! function_exists( 'dn_burst_dash_record_atc_url_groups' ), 'legacy ATC recorder removed' );
 	}
 );
+
+dn_bfs_it(
+	'chart money uses the WooCommerce thousand and decimal separators',
+	function () {
+		$thousand = get_option( 'woocommerce_price_thousand_sep' );
+		$decimal  = get_option( 'woocommerce_price_decimal_sep' );
+
+		update_option( 'woocommerce_price_thousand_sep', '.' );
+		update_option( 'woocommerce_price_decimal_sep', ',' );
+		$_GET     = array( 'page' => 'dn-burst-funnel-stats' );
+		$currency = dn_bfs_admin_script_data()['currency'];
+
+		$_GET = array();
+		update_option( 'woocommerce_price_thousand_sep', $thousand );
+		update_option( 'woocommerce_price_decimal_sep', $decimal );
+
+		dn_bfs_assert_same( '.', isset( $currency['thousand'] ) ? $currency['thousand'] : null );
+		dn_bfs_assert_same( ',', isset( $currency['decimal'] ) ? $currency['decimal'] : null );
+	}
+);
