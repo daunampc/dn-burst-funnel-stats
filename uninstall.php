@@ -40,15 +40,37 @@ foreach ( array( 'dnbfs_aggregate', 'dnbfs_cleanup', 'dn_burst_funnel_stats_refr
 
 delete_metadata( 'user', 0, 'dnbfs_cards', '', true );
 
+// Order tracking meta, in post storage and (when present) the HPOS meta table.
+$dn_bfs_order_meta = array( '_dnbfs_session_uid', '_dnbfs_visitor_uid' );
+
+foreach ( $dn_bfs_order_meta as $dn_bfs_meta_key ) {
+	delete_post_meta_by_key( $dn_bfs_meta_key );
+}
+
+$dn_bfs_hpos_meta = $wpdb->prefix . 'wc_orders_meta';
+
+if ( $dn_bfs_hpos_meta === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $dn_bfs_hpos_meta ) ) ) ) {
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$dn_bfs_hpos_meta} WHERE meta_key IN (%s, %s)", $dn_bfs_order_meta[0], $dn_bfs_order_meta[1] ) );
+}
+
 $dn_bfs_uploads = wp_upload_dir( null, false );
 $dn_bfs_dir     = trailingslashit( $dn_bfs_uploads['basedir'] ) . 'dnbfs';
 
 if ( is_dir( $dn_bfs_dir ) ) {
-	foreach ( (array) glob( $dn_bfs_dir . '/*' ) as $dn_bfs_file ) {
-		if ( is_file( $dn_bfs_file ) ) {
-			unlink( $dn_bfs_file );
+	// Recursive, including dotfiles such as .htaccess.
+	$dn_bfs_entries = new RecursiveIteratorIterator(
+		new RecursiveDirectoryIterator( $dn_bfs_dir, FilesystemIterator::SKIP_DOTS ),
+		RecursiveIteratorIterator::CHILD_FIRST
+	);
+
+	foreach ( $dn_bfs_entries as $dn_bfs_entry ) {
+		if ( $dn_bfs_entry->isDir() && ! $dn_bfs_entry->isLink() ) {
+			rmdir( $dn_bfs_entry->getPathname() );
+		} else {
+			unlink( $dn_bfs_entry->getPathname() );
 		}
 	}
 
+	unset( $dn_bfs_entries, $dn_bfs_entry );
 	rmdir( $dn_bfs_dir );
 }

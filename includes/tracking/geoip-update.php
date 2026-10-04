@@ -22,6 +22,28 @@ function dn_bfs_geoip_download_url( $license_key, $suffix ) {
 	return (string) apply_filters( 'dn_bfs_geoip_download_url', $url, $suffix );
 }
 
+/**
+ * Creates the plugin's uploads folder and blocks direct web access to it.
+ */
+function dn_bfs_ensure_private_dir( $dir ) {
+	if ( ! wp_mkdir_p( $dir ) ) {
+		return false;
+	}
+
+	$guards = array(
+		'index.php' => '<?php // Silence is golden.',
+		'.htaccess' => "Require all denied\nDeny from all\n",
+	);
+
+	foreach ( $guards as $name => $contents ) {
+		if ( ! file_exists( $dir . '/' . $name ) ) {
+			file_put_contents( $dir . '/' . $name, $contents ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		}
+	}
+
+	return true;
+}
+
 function dn_bfs_geoip_fail( $reason, $files = array() ) {
 	foreach ( (array) $files as $file ) {
 		if ( $file && file_exists( $file ) ) {
@@ -46,9 +68,8 @@ function dn_bfs_geoip_update( $license_key ) {
 
 	$target = dn_bfs_geo_db_path();
 	$dir    = dirname( $target );
-	wp_mkdir_p( $dir );
 
-	if ( ! wp_is_writable( $dir ) ) {
+	if ( ! dn_bfs_ensure_private_dir( $dir ) || ! wp_is_writable( $dir ) ) {
 		return dn_bfs_geoip_fail( 'write_failed' );
 	}
 
@@ -98,9 +119,9 @@ function dn_bfs_geoip_update( $license_key ) {
 				break;
 			}
 		}
-		unset( $phar );
+		unset( $file, $phar );
 	} catch ( \Throwable $e ) {
-		unset( $phar );
+		unset( $file, $phar );
 		return dn_bfs_geoip_fail( 'extract_failed', array( $archive ) );
 	}
 
