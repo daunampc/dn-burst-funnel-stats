@@ -106,6 +106,36 @@ function dn_bfs_status_collect() {
 	return dn_bfs_status_check( 'collect', $label, 'ok', __( 'The REST endpoint is reachable.', 'dn-burst-funnel-stats' ) );
 }
 
+function dn_bfs_status_api() {
+	$label  = __( 'Public REST API', 'dn-burst-funnel-stats' );
+	$routes = rest_get_server()->get_routes( dn_bfs_api_namespace() );
+
+	if ( ! isset( $routes[ '/' . dn_bfs_api_namespace() . '/meta' ] ) ) {
+		return dn_bfs_status_check( 'api', $label, 'error', __( 'The public API routes are not registered.', 'dn-burst-funnel-stats' ) );
+	}
+
+	$response = wp_remote_get( rest_url( dn_bfs_api_namespace() . '/meta' ), array( 'timeout' => 3 ) );
+
+	if ( is_wp_error( $response ) ) {
+		return dn_bfs_status_check( 'api', $label, 'error', $response->get_error_message() );
+	}
+
+	$status = (int) wp_remote_retrieve_response_code( $response );
+	$body   = json_decode( wp_remote_retrieve_body( $response ), true );
+	$code   = is_array( $body ) && isset( $body['code'] ) ? (string) $body['code'] : '';
+
+	if ( 401 === $status && 'missing_key' === $code ) {
+		return dn_bfs_status_check( 'api', $label, 'ok', __( 'The API is reachable and asks for a key.', 'dn-burst-funnel-stats' ) );
+	}
+
+	if ( 403 === $status && 'https_required' === $code ) {
+		return dn_bfs_status_check( 'api', $label, 'warning', __( 'The API only answers over HTTPS, but the site address uses HTTP.', 'dn-burst-funnel-stats' ) );
+	}
+
+	/* translators: %d: HTTP status code. */
+	return dn_bfs_status_check( 'api', $label, 'error', sprintf( __( 'The API answered with HTTP %d. A security plugin or firewall may block the REST API.', 'dn-burst-funnel-stats' ), $status ) );
+}
+
 function dn_bfs_status_tracker() {
 	$label    = __( 'Tracker script', 'dn-burst-funnel-stats' );
 	$settings = dn_bfs_get_tracking_settings();
@@ -200,6 +230,7 @@ function dn_bfs_system_status( $now = null ) {
 		dn_bfs_status_aggregation( $now ),
 		dn_bfs_status_cron(),
 		dn_bfs_status_collect(),
+		dn_bfs_status_api(),
 		dn_bfs_status_tracker(),
 		dn_bfs_status_geoip(),
 		dn_bfs_status_geoip_public(),

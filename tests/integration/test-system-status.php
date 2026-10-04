@@ -12,12 +12,20 @@ function dn_bfs_it_status_by_key( $checks ) {
 	return $by_key;
 }
 
-function dn_bfs_it_mock_loopback( $collect_ok = true, $tracker_ok = true ) {
-	$GLOBALS['dn_bfs_it_loopback'] = function ( $pre, $args, $url ) use ( $collect_ok, $tracker_ok ) {
+function dn_bfs_it_mock_loopback( $collect_ok = true, $tracker_ok = true, $api = 'missing_key' ) {
+	$GLOBALS['dn_bfs_it_loopback'] = function ( $pre, $args, $url ) use ( $collect_ok, $tracker_ok, $api ) {
 		$ok = array( 'headers' => array(), 'cookies' => array(), 'filename' => null, 'response' => array( 'code' => 200, 'message' => 'OK' ) );
 
 		if ( false !== strpos( $url, '/dnbfs/v1/collect' ) ) {
 			return $collect_ok ? array_merge( $ok, array( 'body' => '{"ok":true}' ) ) : new WP_Error( 'http_request_failed', 'Connection refused' );
+		}
+
+		if ( false !== strpos( $url, '/dnbfs/v1/meta' ) ) {
+			if ( 'blocked' === $api ) {
+				return array_merge( $ok, array( 'body' => '<html>Forbidden</html>', 'response' => array( 'code' => 403, 'message' => 'Forbidden' ) ) );
+			}
+
+			return array_merge( $ok, array( 'body' => wp_json_encode( array( 'code' => $api, 'message' => 'x' ) ), 'response' => array( 'code' => 'https_required' === $api ? 403 : 401, 'message' => 'x' ) ) );
 		}
 
 		if ( false !== strpos( $url, 'GeoLite2-City.mmdb' ) ) {
@@ -59,11 +67,12 @@ dn_bfs_it_today(
 
 		$checks = dn_bfs_it_status_by_key( dn_bfs_system_status() );
 
-		dn_bfs_assert_same( array( 'tables', 'schema', 'aggregation', 'cron', 'collect', 'tracker', 'geoip', 'geoip_public', 'proxy', 'versions' ), array_keys( $checks ) );
+		dn_bfs_assert_same( array( 'tables', 'schema', 'aggregation', 'cron', 'collect', 'api', 'tracker', 'geoip', 'geoip_public', 'proxy', 'versions' ), array_keys( $checks ) );
 		dn_bfs_assert_same( 'ok', $checks['tables']['status'] );
 		dn_bfs_assert_same( 'ok', $checks['schema']['status'] );
 		dn_bfs_assert_same( 'ok', $checks['aggregation']['status'] );
 		dn_bfs_assert_same( 'ok', $checks['collect']['status'] );
+		dn_bfs_assert_same( 'ok', $checks['api']['status'] );
 		dn_bfs_assert_same( 'ok', $checks['tracker']['status'] );
 		dn_bfs_assert_same( 'info', $checks['versions']['status'] );
 
@@ -108,3 +117,19 @@ dn_bfs_it(
 	}
 );
 
+dn_bfs_it(
+	'system status checks that the public API answers and asks for a key',
+	function () {
+		$real = rest_do_request( new WP_REST_Request( 'GET', '/dnbfs/v1/meta' ) );
+		dn_bfs_assert_same( 401, $real->get_status(), 'the real route answers what the check expects' );
+		dn_bfs_assert_same( 'missing_key', $real->get_data()['code'] );
+
+		foreach ( array( 'missing_key' => 'ok', 'https_required' => 'warning', 'blocked' => 'error' ) as $api => $status ) {
+			dn_bfs_it_mock_loopback( true, true, $api );
+			$checks = dn_bfs_it_status_by_key( dn_bfs_system_status() );
+			dn_bfs_it_unmock_loopback();
+
+			dn_bfs_assert_same( $status, $checks['api']['status'], $api );
+		}
+	}
+);

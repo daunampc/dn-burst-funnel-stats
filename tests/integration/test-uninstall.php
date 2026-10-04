@@ -28,6 +28,11 @@ dn_bfs_it(
 			$wpdb->insert( $hpos_meta, array( 'order_id' => $order->get_id(), 'meta_key' => '_dnbfs_visitor_uid', 'meta_value' => 'vid' ) );
 		}
 
+		$api_key = dn_bfs_api_create_key( array( 'name' => 'Uninstall', 'scopes' => array( 'stats:read' ) ) );
+		dn_bfs_api_reveal_key_store( 1, $api_key['key'] );
+		set_transient( 'dnbfs_api_c_test', array( 1 ), 60 );
+		set_transient( 'dnbfs_api_rl_1_1', 1, 60 );
+
 		if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 			define( 'WP_UNINSTALL_PLUGIN', 'dn-burst-funnel-stats/dn-burst-funnel-stats.php' );
 		}
@@ -44,6 +49,9 @@ dn_bfs_it(
 			dn_bfs_assert_true( false === get_option( 'dn_atc_hits_2026_01_01' ), 'legacy option' );
 			dn_bfs_assert_true( false === get_option( 'dn_burst_funnel_stats_tracking_settings' ), 'settings' );
 			dn_bfs_assert_true( false === get_transient( 'dnbfs_r_test' ), 'transient' );
+			dn_bfs_assert_true( false === get_transient( 'dnbfs_api_reveal_1' ), 'one-time key reveal' );
+			dn_bfs_assert_true( false === get_transient( 'dnbfs_api_c_test' ), 'API response cache' );
+			dn_bfs_assert_true( false === get_transient( 'dnbfs_api_rl_1_1' ), 'API rate counter' );
 			dn_bfs_assert_true( false === get_option( 'dnbfs_api_rl_987' ), 'api rate-limit counter' );
 			dn_bfs_assert_true( false === wp_next_scheduled( 'dnbfs_aggregate' ), 'cron' );
 			dn_bfs_assert_true( ! file_exists( dn_bfs_geo_db_path() ), 'geoip file' );
