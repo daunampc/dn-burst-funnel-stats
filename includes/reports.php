@@ -302,6 +302,19 @@ function dn_bfs_report_timeseries( $range, $metrics, $filters = array(), $now = 
 	);
 }
 
+function dn_bfs_report_funnel_steps( $metrics ) {
+	$steps = array();
+
+	foreach ( array( 'visitors', 'product_views', 'atc', 'carts', 'checkouts', 'orders' ) as $key ) {
+		$steps[] = array(
+			'key'   => $key,
+			'value' => (int) $metrics[ $key ],
+		);
+	}
+
+	return $steps;
+}
+
 function dn_bfs_report_funnel( $range, $filters = array(), $now = null ) {
 	$range['compare'] = 'none';
 	$summary          = dn_bfs_report_summary( $range, $filters, $now );
@@ -310,16 +323,7 @@ function dn_bfs_report_funnel( $range, $filters = array(), $now = null ) {
 		return $summary;
 	}
 
-	$steps = array();
-
-	foreach ( array( 'visitors', 'product_views', 'atc', 'carts', 'checkouts', 'orders' ) as $key ) {
-		$steps[] = array(
-			'key'   => $key,
-			'value' => (int) $summary['current'][ $key ],
-		);
-	}
-
-	return $steps;
+	return dn_bfs_report_funnel_steps( $summary['current'] );
 }
 
 /**

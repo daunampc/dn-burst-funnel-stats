@@ -79,3 +79,7 @@ function dn_bfs_it_rate_row( $key_id ) {
 
 	return $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'dnbfs_api_rl_' . (int) $key_id ) );
 }
+
+function dn_bfs_it_api_get( $route, $query = array(), $key = '', $via = 'bearer' ) {
+	return rest_do_request( dn_bfs_it_api_request( $route, $query, $key, $via ) );
+}
