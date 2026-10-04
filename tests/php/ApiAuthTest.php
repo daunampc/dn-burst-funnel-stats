@@ -87,6 +87,24 @@ class ApiAuthTest extends TestCase {
 		$this->assertSame( '2001:db8::9', $this->resolve( array( 'REMOTE_ADDR' => 'fd00::1', 'HTTP_X_FORWARDED_FOR' => '2001:db8::9, fd00::2' ), array( 'fd00::/8' ) ) );
 	}
 
+	public function test_ports_and_ipv4_mapped_addresses_are_normalised() {
+		$this->assertSame( '203.0.113.10', $this->resolve( array( 'REMOTE_ADDR' => '::ffff:203.0.113.10' ) ) );
+		$this->assertSame( '203.0.113.10', $this->resolve( array( 'REMOTE_ADDR' => '::ffff:cb00:710a' ) ) );
+		$this->assertSame( '203.0.113.10', $this->resolve( array( 'REMOTE_ADDR' => '203.0.113.10:5555' ) ) );
+		$this->assertSame( '2001:db8::1', $this->resolve( array( 'REMOTE_ADDR' => '[2001:db8::1]:443' ) ) );
+		$this->assertSame( '198.51.100.7', $this->resolve( array( 'REMOTE_ADDR' => '172.70.1.2', 'HTTP_CF_CONNECTING_IP' => '198.51.100.7:1234' ) ) );
+		$this->assertSame( '172.70.1.2', $this->resolve( array( 'REMOTE_ADDR' => '::ffff:172.70.1.2', 'HTTP_CF_CONNECTING_IP' => 'x' ) ), 'mapped Cloudflare address matches the v4 range' );
+
+		$trusted = array( '10.0.0.0/8' );
+		$server  = array( 'REMOTE_ADDR' => '10.0.0.5', 'HTTP_X_FORWARDED_FOR' => '198.51.100.7:4444, [2001:db8::9]:443, ::ffff:10.1.1.1, 10.1.1.2:80' );
+
+		$this->assertSame( '2001:db8::9', $this->resolve( $server, $trusted ) );
+		$this->assertSame( '198.51.100.7', $this->resolve( array( 'REMOTE_ADDR' => '10.0.0.5', 'HTTP_X_FORWARDED_FOR' => '198.51.100.7:4444, ::ffff:10.1.1.1' ), $trusted ) );
+		$this->assertTrue( dn_bfs_api_ip_allowed( $this->resolve( array( 'REMOTE_ADDR' => '::ffff:203.0.113.10' ) ), array( '203.0.113.10' ) ) );
+		$this->assertSame( '', dn_bfs_api_normalize_ip( 'a:b' ) );
+		$this->assertSame( '', dn_bfs_api_normalize_ip( '1.2.3.4:' ) );
+	}
+
 	public function test_default_cloudflare_ranges_are_valid() {
 		$ranges = dn_bfs_api_default_cloudflare_ranges();
 

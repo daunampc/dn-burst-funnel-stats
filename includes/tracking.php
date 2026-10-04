@@ -130,25 +130,41 @@ function dn_bfs_normalize_lines( $value ) {
 	return array_values( array_unique( $clean ) );
 }
 
-function dn_bfs_validate_ip_rule( $rule ) {
+/**
+ * Parses an IP rule ("ip" or "ip/bits") into array( ip, bits ), or false when
+ * malformed. Whitespace around the parts is ignored; the prefix must be plain
+ * digits within the address family (32 / 128). A bare IP means a full-length prefix.
+ * Shared by the validator and the matcher so they always agree.
+ */
+function dn_bfs_parse_ip_rule( $rule ) {
 	$rule = trim( (string) $rule );
+	$bits = null;
 
-	if ( false === strpos( $rule, '/' ) ) {
-		return false !== filter_var( $rule, FILTER_VALIDATE_IP );
+	if ( false !== strpos( $rule, '/' ) ) {
+		$parts = explode( '/', $rule, 2 );
+		$rule  = trim( $parts[0] );
+		$bits  = trim( $parts[1] );
+
+		if ( ! ctype_digit( $bits ) ) {
+			return false;
+		}
 	}
 
-	$parts = explode( '/', $rule, 2 );
-	$ip    = trim( $parts[0] );
-	$bits  = isset( $parts[1] ) ? absint( $parts[1] ) : 0;
-
-	if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+	if ( false === filter_var( $rule, FILTER_VALIDATE_IP ) ) {
 		return false;
 	}
 
-	$is_ipv6 = false !== filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 );
-	$max     = $is_ipv6 ? 128 : 32;
+	$max = false !== filter_var( $rule, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ? 128 : 32;
 
-	return $bits >= 0 && $bits <= $max;
+	if ( null === $bits ) {
+		return array( $rule, $max );
+	}
+
+	return strlen( $bits ) <= 3 && (int) $bits <= $max ? array( $rule, (int) $bits ) : false;
+}
+
+function dn_bfs_validate_ip_rule( $rule ) {
+	return false !== dn_bfs_parse_ip_rule( $rule );
 }
 
 function dn_bfs_sanitize_tracking_settings( $settings ) {
@@ -270,28 +286,17 @@ function dn_bfs_get_current_user_agent() {
 
 function dn_bfs_ip_in_cidr( $ip, $cidr ) {
 	$ip   = (string) $ip;
-	$cidr = (string) $cidr;
+	$rule = dn_bfs_parse_ip_rule( $cidr );
 
-	if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+	if ( false === $rule || false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
 		return false;
 	}
 
-	if ( false === strpos( $cidr, '/' ) ) {
-		// Compare binary forms so equivalent IPv6 spellings match.
-		return false !== filter_var( $cidr, FILTER_VALIDATE_IP ) && inet_pton( $ip ) === inet_pton( $cidr );
-	}
-
-	list( $range_ip, $bits ) = explode( '/', $cidr, 2 );
-
-	if ( ! ctype_digit( $bits ) || false === filter_var( $range_ip, FILTER_VALIDATE_IP ) ) {
-		return false;
-	}
-
-	$bits      = (int) $bits;
+	$bits      = $rule[1];
 	$ip_bin    = inet_pton( $ip );
-	$range_bin = inet_pton( $range_ip );
+	$range_bin = inet_pton( $rule[0] );
 
-	if ( strlen( $ip_bin ) !== strlen( $range_bin ) || $bits > 8 * strlen( $ip_bin ) ) {
+	if ( strlen( $ip_bin ) !== strlen( $range_bin ) ) {
 		return false;
 	}
 

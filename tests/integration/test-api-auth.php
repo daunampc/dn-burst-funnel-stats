@@ -196,6 +196,24 @@ dn_bfs_it(
 );
 
 dn_bfs_it(
+	'a late request from the previous minute does not reset the counter',
+	function () {
+		$key = dn_bfs_api_get_key( dn_bfs_it_api_key( array( 'rate_limit' => '10' ) )['id'] );
+		$now = 1800000060; // Start of minute 30000001.
+
+		dn_bfs_api_rate_check( $key, $now );
+		dn_bfs_api_rate_check( $key, $now + 1 );
+		dn_bfs_assert_same( '30000001:2', dn_bfs_it_rate_row( $key['id'] ), 'two counted' );
+
+		dn_bfs_api_rate_check( $key, $now - 1 ); // Late, from minute 30000000.
+		dn_bfs_assert_same( '30000001:3', dn_bfs_it_rate_row( $key['id'] ), 'stored (newer) minute is incremented, not reset' );
+
+		dn_bfs_api_rate_check( $key, $now + 120 );
+		dn_bfs_assert_same( '30000003:1', dn_bfs_it_rate_row( $key['id'] ), 'older stored minute resets' );
+	}
+);
+
+dn_bfs_it(
 	'with a persistent object cache the rate limit uses an atomic cache increment',
 	function () {
 		$key      = dn_bfs_api_get_key( dn_bfs_it_api_key( array( 'rate_limit' => '2' ) )['id'] );

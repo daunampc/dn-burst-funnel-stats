@@ -107,17 +107,44 @@ function dn_bfs_api_ip_in_ranges( $ip, $ranges ) {
  * range, X-Forwarded-For only when it comes from a trusted proxy (walked
  * right-to-left, skipping trusted proxies and Cloudflare hops).
  */
-function dn_bfs_api_resolve_client_ip( $server, $trusted_proxies, $cloudflare_ranges ) {
-	$remote = isset( $server['REMOTE_ADDR'] ) ? trim( (string) $server['REMOTE_ADDR'] ) : '';
+/**
+ * Normalises an address taken from REMOTE_ADDR or a proxy header: strips
+ * brackets and ports ("1.2.3.4:80", "[2001:db8::1]:443") and unmaps
+ * IPv4-mapped IPv6 ("::ffff:1.2.3.4"). Returns '' when it is not an IP.
+ */
+function dn_bfs_api_normalize_ip( $value ) {
+	$value = trim( (string) $value );
 
-	if ( false === filter_var( $remote, FILTER_VALIDATE_IP ) ) {
+	if ( preg_match( '/^\[([^\]]+)\](?::\d{1,5})?$/', $value, $m ) ) {
+		$value = $m[1];
+	} elseif ( 1 === substr_count( $value, ':' ) && preg_match( '/^([^:]+):\d{1,5}$/', $value, $m ) ) {
+		$value = $m[1];
+	}
+
+	if ( false === filter_var( $value, FILTER_VALIDATE_IP ) ) {
+		return '';
+	}
+
+	$bin = inet_pton( $value );
+
+	if ( 16 === strlen( $bin ) && str_repeat( "\0", 10 ) . "\xff\xff" === substr( $bin, 0, 12 ) ) {
+		return inet_ntop( substr( $bin, 12 ) );
+	}
+
+	return $value;
+}
+
+function dn_bfs_api_resolve_client_ip( $server, $trusted_proxies, $cloudflare_ranges ) {
+	$remote = isset( $server['REMOTE_ADDR'] ) ? dn_bfs_api_normalize_ip( $server['REMOTE_ADDR'] ) : '';
+
+	if ( '' === $remote ) {
 		return 'unknown';
 	}
 
 	if ( dn_bfs_api_ip_in_ranges( $remote, $cloudflare_ranges ) ) {
-		$connecting = isset( $server['HTTP_CF_CONNECTING_IP'] ) ? trim( (string) $server['HTTP_CF_CONNECTING_IP'] ) : '';
+		$connecting = isset( $server['HTTP_CF_CONNECTING_IP'] ) ? dn_bfs_api_normalize_ip( $server['HTTP_CF_CONNECTING_IP'] ) : '';
 
-		return false !== filter_var( $connecting, FILTER_VALIDATE_IP ) ? $connecting : $remote;
+		return '' !== $connecting ? $connecting : $remote;
 	}
 
 	if ( empty( $server['HTTP_X_FORWARDED_FOR'] ) || ! dn_bfs_api_ip_in_ranges( $remote, $trusted_proxies ) ) {
@@ -128,10 +155,10 @@ function dn_bfs_api_resolve_client_ip( $server, $trusted_proxies, $cloudflare_ra
 	$client  = $remote;
 
 	foreach ( array_reverse( explode( ',', (string) $server['HTTP_X_FORWARDED_FOR'] ) ) as $hop ) {
-		$hop = trim( $hop );
+		$hop = dn_bfs_api_normalize_ip( $hop );
 
 		// A malformed hop means the chain can no longer be trusted past this point.
-		if ( false === filter_var( $hop, FILTER_VALIDATE_IP ) ) {
+		if ( '' === $hop ) {
 			break;
 		}
 
@@ -178,18 +205,29 @@ function dn_bfs_api_rate_increment( $key_id, $window ) {
 		}
 	}
 
+	// Keep the counter statements and the read-back on the primary under HyperDB / LudicrousDB.
+	if ( method_exists( $wpdb, 'send_reads_to_masters' ) ) {
+		$wpdb->send_reads_to_masters();
+	}
+
 	$option = dn_bfs_api_rate_option( $key_id );
 	$minute = (string) (int) $window;
+	$stored = "SUBSTRING_INDEX( option_value, ':', 1 )";
+	// Reset only when the stored minute is older; a late request from a previous minute increments the stored one.
 	$update = $wpdb->prepare(
-		"UPDATE {$wpdb->options} SET option_value = CONCAT( %s, ':', LAST_INSERT_ID( IF( SUBSTRING_INDEX( option_value, ':', 1 ) = %s, CAST( SUBSTRING_INDEX( option_value, ':', -1 ) AS UNSIGNED ) + 1, 1 ) ) ) WHERE option_name = %s",
+		"UPDATE {$wpdb->options} SET option_value = CONCAT( IF( CAST( {$stored} AS UNSIGNED ) < %d, %s, {$stored} ), ':', LAST_INSERT_ID( IF( CAST( {$stored} AS UNSIGNED ) < %d, 1, CAST( SUBSTRING_INDEX( option_value, ':', -1 ) AS UNSIGNED ) + 1 ) ) ) WHERE option_name = %s",
+		(int) $window,
 		$minute,
-		$minute,
+		(int) $window,
 		$option
 	);
 
 	for ( $attempt = 0; $attempt < 2; $attempt++ ) {
 		if ( 1 === (int) $wpdb->query( $update ) ) {
-			return (int) $wpdb->get_var( 'SELECT LAST_INSERT_ID()' );
+			$count = (int) $wpdb->get_var( 'SELECT LAST_INSERT_ID()' );
+
+			// A count below 1 can only be a stale read or an anomaly: treat it as a failed write.
+			return $count >= 1 ? $count : false;
 		}
 
 		if ( 0 === $attempt ) {
@@ -209,6 +247,15 @@ function dn_bfs_api_rate_check( $key, $now ) {
 	$count  = dn_bfs_api_rate_increment( $key['id'], $window );
 
 	// Fail open if the counter could not be written: a broken options table must not lock out every key.
+	if ( false === $count ) {
+		static $logged = false;
+
+		if ( ! $logged ) {
+			$logged = true;
+			error_log( 'DN Burst Funnel Stats: API rate-limit counter unavailable; failing open.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		}
+	}
+
 	if ( false !== $count && $count > $limit ) {
 		return dn_bfs_request_error(
 			'rate_limited',
