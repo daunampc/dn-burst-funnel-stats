@@ -31,7 +31,7 @@ function dn_bfs_valid_date_string( $value ) {
 	return $date && $date->format( 'Y-m-d' ) === $value;
 }
 
-function dn_bfs_parse_range( $params ) {
+function dn_bfs_parse_range( $params, $max_days = 731 ) {
 	$settings = dn_bfs_get_tracking_settings();
 	$period   = isset( $params['period'] ) && is_string( $params['period'] ) && '' !== $params['period'] ? $params['period'] : $settings['default_date_range'];
 	$compare  = isset( $params['compare'] ) && is_string( $params['compare'] ) && '' !== $params['compare'] ? $params['compare'] : $settings['default_compare'];
@@ -58,8 +58,9 @@ function dn_bfs_parse_range( $params ) {
 		$utc  = new DateTimeZone( 'UTC' );
 		$span = (int) ( new DateTimeImmutable( $start . ' 00:00:00', $utc ) )->diff( new DateTimeImmutable( $end . ' 00:00:00', $utc ) )->days;
 
-		if ( $span > 730 ) {
-			return dn_bfs_request_error( 'range_too_long', __( 'Custom ranges can cover at most 731 days.', 'dn-burst-funnel-stats' ) );
+		if ( $span > (int) $max_days - 1 ) {
+			/* translators: %d: maximum number of days in a custom range. */
+			return dn_bfs_request_error( 'range_too_long', sprintf( __( 'Custom ranges can cover at most %d days.', 'dn-burst-funnel-stats' ), (int) $max_days ) );
 		}
 	}
 

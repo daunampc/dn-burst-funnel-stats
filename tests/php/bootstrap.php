@@ -64,3 +64,11 @@ foreach ( array( 'ua-parser', 'channel', 'guard', 'geo' ) as $dn_bfs_file ) {
 foreach ( array( 'metrics', 'wc-settings' ) as $dn_bfs_file ) {
 	require_once $dn_bfs_root . '/includes/reports/' . $dn_bfs_file . '.php';
 }
+
+foreach ( array( 'keys', 'auth' ) as $dn_bfs_file ) {
+	$dn_bfs_path = $dn_bfs_root . '/includes/api/' . $dn_bfs_file . '.php';
+
+	if ( file_exists( $dn_bfs_path ) ) {
+		require_once $dn_bfs_path;
+	}
+}

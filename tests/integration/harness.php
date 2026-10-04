@@ -48,14 +48,16 @@ function dn_bfs_it_reset() {
 	global $wpdb;
 
 	if ( function_exists( 'dn_bfs_table' ) ) {
-		foreach ( array( 'visitors', 'sessions', 'pageviews', 'events', 'daily' ) as $table ) {
+		foreach ( array( 'visitors', 'sessions', 'pageviews', 'events', 'daily', 'api_keys' ) as $table ) {
 			$wpdb->query( 'TRUNCATE TABLE ' . dn_bfs_table( $table ) );
 		}
 	}
 
 	// Report caching is off by default in tests; the cache test re-enables it locally.
 	add_filter( 'dn_bfs_report_cache_ttl', '__return_zero' );
-	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $wpdb->esc_like( '_transient_dnbfs_r_' ) . '%', $wpdb->esc_like( '_transient_timeout_dnbfs_r_' ) . '%' ) );
+	foreach ( array( 'dnbfs_r_', 'dnbfs_api_' ) as $transient_prefix ) {
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $wpdb->esc_like( '_transient_' . $transient_prefix ) . '%', $wpdb->esc_like( '_transient_timeout_' . $transient_prefix ) . '%' ) );
+	}
 	wp_cache_flush();
 
 	dn_bfs_it_settings( array() );
@@ -68,7 +70,7 @@ function dn_bfs_it_reset() {
 	$_SERVER['HTTP_USER_AGENT'] = DN_BFS_IT_UA;
 	$_SERVER['HTTP_REFERER']    = '';
 	$_SERVER['REQUEST_URI']     = '/';
-	unset( $_SERVER['HTTP_CF_RAY'], $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_CF_IPCOUNTRY'] );
+	unset( $_SERVER['HTTP_CF_RAY'], $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_CF_IPCOUNTRY'], $_SERVER['HTTPS'] );
 }
 
 function dn_bfs_it( $name, $callback ) {

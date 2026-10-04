@@ -133,6 +133,18 @@ function dn_burst_funnel_stats_load_admin()
 }
 
 /**
+ * Load the public REST API (keys, authentication, routes, OpenAPI document).
+ *
+ * @return void
+ */
+function dn_burst_funnel_stats_load_api()
+{
+  foreach (array('keys') as $module) {
+    require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/api/' . $module . '.php';
+  }
+}
+
+/**
  * Validate dependencies on plugin activation.
  *
  * @return void
@@ -293,6 +305,7 @@ function dn_burst_funnel_stats_bootstrap()
   dn_burst_funnel_stats_load_reports();
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/date-ranges.php';
   dn_burst_funnel_stats_load_admin();
+  dn_burst_funnel_stats_load_api();
 
   dn_burst_funnel_stats_maybe_migrate();
   dn_bfs_schedule_crons();

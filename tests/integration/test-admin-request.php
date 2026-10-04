@@ -110,3 +110,19 @@ dn_bfs_it(
 		dn_bfs_assert_same( 'range_too_long', $bad->get_error_code() );
 	}
 );
+
+dn_bfs_it(
+	'range parsing takes an optional day limit for the public API',
+	function () {
+		$ok = dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2025-01-01', 'end' => '2026-01-01' ), 366 );
+		dn_bfs_assert_true( ! is_wp_error( $ok ), '366 days accepted' );
+
+		$bad = dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2025-01-01', 'end' => '2026-01-02' ), 366 );
+		dn_bfs_assert_true( is_wp_error( $bad ), '367 days rejected' );
+		dn_bfs_assert_same( 'range_too_long', $bad->get_error_code() );
+		dn_bfs_assert_true( false !== strpos( $bad->get_error_message(), '366' ), 'message names the limit' );
+
+		$admin = dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2024-01-01', 'end' => '2026-01-01' ) );
+		dn_bfs_assert_true( false !== strpos( $admin->get_error_message(), '731' ), 'admin limit unchanged' );
+	}
+);
