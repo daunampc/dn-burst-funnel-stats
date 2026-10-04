@@ -127,7 +127,7 @@ function dn_burst_funnel_stats_load_reports()
  */
 function dn_burst_funnel_stats_load_admin()
 {
-  foreach (array('request', 'settings-model', 'system-status', 'dashboard-data', 'dashboard-page', 'ajax', 'data-tools', 'settings-page') as $module) {
+  foreach (array('request', 'settings-model', 'system-status', 'dashboard-data', 'dashboard-page', 'ajax', 'data-tools', 'settings-page', 'menu') as $module) {
     require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin/' . $module . '.php';
   }
 }
@@ -274,15 +274,9 @@ function dn_burst_funnel_stats_bootstrap()
   dn_burst_funnel_stats_load_reports();
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/date-ranges.php';
   dn_burst_funnel_stats_load_admin();
-  require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/dashboard.php';
-  require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/admin-menu.php';
-  require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/settings.php';
-  require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/import-export.php';
-  require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/ajax.php';
 
   dn_burst_funnel_stats_maybe_migrate();
   dn_bfs_schedule_crons();
-  dn_burst_dash_schedule_refresh_event();
 }
 add_action('plugins_loaded', 'dn_burst_funnel_stats_bootstrap');
 

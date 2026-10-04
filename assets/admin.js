@@ -1,33 +1,45 @@
 (function ($) {
 	'use strict';
 
-	var config = window.dnBurstFunnelStats || {};
+	var config = window.dnBfsAdmin || {};
+	var strings = config.strings || {};
+	var state = {
+		period: config.period || 'month_to_date',
+		compare: config.compare || 'previous_year',
+		start: config.start || '',
+		end: config.end || '',
+		filters: $.isPlainObject(config.filters) ? $.extend({}, config.filters) : {}
+	};
 
-	function getDateState() {
-		return {
-			period: config.period || 'month_to_date',
-			compare: config.compare || 'previous_year',
-			start: config.start || '',
-			end: config.end || ''
-		};
+	function requestData(extra) {
+		return $.extend({
+			nonce: config.nonce,
+			period: state.period,
+			compare: state.compare,
+			start: state.start,
+			end: state.end,
+			filter: state.filters
+		}, extra || {});
 	}
 
-	function setDateState(state) {
-		config.period = state.period || config.period || 'month_to_date';
-		config.compare = state.compare || config.compare || 'previous_year';
-		config.start = state.start || config.start || '';
-		config.end = state.end || config.end || '';
+	function post(action, extra) {
+		return $.post(config.ajaxUrl, requestData($.extend({ action: action }, extra || {})));
+	}
+
+	function errorMessage(source) {
+		var body = source && source.responseJSON ? source.responseJSON : source;
+		return body && body.data && body.data.message ? body.data.message : (strings.error || 'Unable to load data. Please try again.');
 	}
 
 	function getCurrentTab() {
 		var $active = $('[data-dn-tab].nav-tab-active');
-		return $active.length ? $active.data('dn-tab') : (config.currentTab || 'overview');
+		return $active.length ? $active.data('dn-tab') : (config.tab || 'overview');
 	}
 
 	function setLoading($region) {
 		$region.addClass('is-loading');
 		if (!$region.find('.dn-burst-loading').length) {
-			$region.prepend('<div class="dn-burst-loading">' + (config.strings && config.strings.loading ? config.strings.loading : 'Loading data...') + '</div>');
+			$region.prepend($('<div class="dn-burst-loading"></div>').text(strings.loading || 'Loading data…'));
 		}
 	}
 
@@ -36,11 +48,7 @@
 	}
 
 	function showError($region, message) {
-		$region.html('<div class="notice notice-error"><p>' + $('<div>').text(message || config.strings.error).html() + '</p></div>');
-	}
-
-	function datePayload(extra) {
-		return $.extend({}, getDateState(), extra || {});
+		$region.html($('<div class="notice notice-error inline"><p></p></div>').find('p').text(message).end());
 	}
 
 	function updateUrl(tab) {
@@ -48,11 +56,21 @@
 			return;
 		}
 
-		var state = getDateState();
 		var url = new URL(window.location.href);
+		var stale = [];
+
+		url.searchParams.forEach(function (value, key) {
+			if (key.indexOf('dn_filter[') === 0) {
+				stale.push(key);
+			}
+		});
+		stale.forEach(function (key) {
+			url.searchParams.delete(key);
+		});
+
+		url.searchParams.set('dn_tab', tab);
 		url.searchParams.set('dn_period', state.period);
 		url.searchParams.set('dn_compare', state.compare);
-		url.searchParams.set('dn_tab', tab || getCurrentTab());
 
 		if (state.period === 'custom') {
 			url.searchParams.set('dn_start', state.start);
@@ -62,7 +80,11 @@
 			url.searchParams.delete('dn_end');
 		}
 
-		window.history.pushState({ dnTab: tab || getCurrentTab() }, '', url.toString());
+		$.each(state.filters, function (dimension, value) {
+			url.searchParams.set('dn_filter[' + dimension + ']', value);
+		});
+
+		window.history.pushState({ dnTab: tab }, '', url.toString());
 	}
 
 	function updateDateButton(range) {
@@ -70,21 +92,10 @@
 			return;
 		}
 
-		var title = range.current_label + ' (' + range.current_range_label + ')';
 		var compare = range.compare !== 'none' && range.previous_range_label ? range.compare_label + ' (' + range.previous_range_label + ')' : '';
 
-		$('.dn-burst-date-title').text(title);
-		$('.dn-burst-date-compare').text(compare).toggle(!!compare);
-	}
-
-	function updateTopbarTitle(tab) {
-		var $tab = $('[data-dn-tab="' + tab + '"]');
-
-		if (!$tab.length) {
-			return;
-		}
-
-		$('.dn-burst-topbar-title').text($.trim($tab.text()));
+		$('.dn-burst-date-title').text(range.current_label + ' (' + range.current_range_label + ')');
+		$('.dn-burst-date-compare').text(compare).prop('hidden', !compare);
 	}
 
 	function loadTab(tab, pushState) {
@@ -96,105 +107,162 @@
 
 		setLoading($content);
 
-		$.post(config.ajaxUrl, datePayload({
-			action: 'dn_burst_funnel_stats_load_tab',
-			nonce: config.nonce,
-			tab: tab
-		})).done(function (response) {
+		post('dn_bfs_load_tab', { tab: tab }).done(function (response) {
 			if (!response || !response.success) {
-				showError($content, response && response.data && response.data.message ? response.data.message : config.strings.error);
+				showError($content, errorMessage(response));
 				return;
 			}
 
 			$content.html(response.data.html);
 			$('[data-dn-tab]').removeClass('nav-tab-active');
 			$('[data-dn-tab="' + tab + '"]').addClass('nav-tab-active');
-			config.currentTab = tab;
-			updateTopbarTitle(tab);
+			$('.dn-burst-topbar-title').text(response.data.title);
+			config.tab = tab;
 			updateDateButton(response.data.range);
 			initCharts();
 
 			if (pushState) {
 				updateUrl(tab);
 			}
-		}).fail(function () {
-			showError($content, config.strings.error);
+		}).fail(function (xhr) {
+			showError($content, errorMessage(xhr));
 		}).always(function () {
 			clearLoading($content);
 		});
 	}
 
-	function loadUrlTable(overrides) {
-		var $region = $('[data-dn-url-table-region]');
-		var $checked = $('[data-dn-url-group] input[name="dn_group"]:checked');
-		var data = $.extend({
-			action: 'dn_burst_funnel_stats_url_tracking',
-			nonce: config.nonce,
-			group: $checked.length ? $checked.val() : 'campaign',
-			orderby: 'visits',
-			order: 'desc',
-			paged: 1
-		}, getDateState(), overrides || {});
-
-		if (!$region.length) {
-			return;
-		}
+	function loadTable($table, overrides) {
+		var $region = $table.closest('[data-dn-table-region]');
 
 		setLoading($region);
 
-		$.post(config.ajaxUrl, data).done(function (response) {
+		post('dn_bfs_table', $.extend({
+			tab: $table.attr('data-tab'),
+			dimension: $table.attr('data-dimension'),
+			orderby: $table.attr('data-orderby'),
+			order: $table.attr('data-order'),
+			page: $table.attr('data-page') || 1
+		}, overrides || {})).done(function (response) {
 			if (!response || !response.success) {
-				showError($region, response && response.data && response.data.message ? response.data.message : config.strings.error);
+				showError($region, errorMessage(response));
 				return;
 			}
 
 			$region.html(response.data.html);
-		}).fail(function () {
-			showError($region, config.strings.error);
+		}).fail(function (xhr) {
+			showError($region, errorMessage(xhr));
 		}).always(function () {
 			clearLoading($region);
+		});
+	}
+
+	function renderFilterChips() {
+		var $chips = $('[data-dn-filter-chips]').empty();
+		var labels = config.filterLabels || {};
+
+		$.each(state.filters, function (dimension, value) {
+			var $chip = $('<span class="dn-burst-chip"></span>').attr('data-dn-filter-dim', dimension);
+
+			$chip.append($('<span></span>').text((labels[dimension] || dimension) + ': ' + value));
+			$chip.append($('<button type="button" class="dn-burst-chip-remove" data-dn-filter-remove></button>').attr('aria-label', strings.removeFilter || 'Remove filter').html('&times;'));
+			$chips.append($chip);
+		});
+	}
+
+	function setFilter(dimension, value) {
+		if (value === '' || value === null || typeof value === 'undefined') {
+			delete state.filters[dimension];
+		} else {
+			state.filters[dimension] = String(value);
+		}
+
+		renderFilterChips();
+		loadTab(getCurrentTab(), true);
+	}
+
+	function drawer() {
+		var $drawer = $('[data-dn-drawer]');
+
+		if (!$drawer.length) {
+			$drawer = $('<div class="dn-burst-drawer" data-dn-drawer role="dialog" aria-modal="false" hidden><div class="dn-burst-drawer-body" data-dn-drawer-body></div></div>').appendTo('body');
+		}
+
+		return $drawer;
+	}
+
+	function openDrilldown(dimension, value) {
+		var $drawer = drawer();
+		var $body = $drawer.find('[data-dn-drawer-body]').empty();
+
+		$drawer.prop('hidden', false);
+		setLoading($body);
+
+		post('dn_bfs_drilldown', { dimension: dimension, value: value }).done(function (response) {
+			if (!response || !response.success) {
+				showError($body, errorMessage(response));
+				return;
+			}
+
+			$body.html(response.data.html);
+			initCharts();
+		}).fail(function (xhr) {
+			showError($body, errorMessage(xhr));
+		}).always(function () {
+			clearLoading($body);
+		});
+	}
+
+	var cardsSnapshot = null;
+
+	function cardsGrid() {
+		return $('[data-dn-cards]');
+	}
+
+	function toggleCardButtons(editing) {
+		$('[data-dn-cards-edit]').prop('hidden', editing);
+		$('[data-dn-cards-save], [data-dn-cards-cancel], [data-dn-cards-reset]').prop('hidden', !editing);
+	}
+
+	function exitCardEdit() {
+		var $grid = cardsGrid();
+
+		if ($.fn.sortable && $grid.hasClass('ui-sortable')) {
+			$grid.sortable('destroy');
+		}
+
+		$grid.removeClass('is-editing');
+		toggleCardButtons(false);
+	}
+
+	function refreshOnline() {
+		var $badge = $('[data-dn-online]');
+
+		if (!$badge.length) {
+			return;
+		}
+
+		post('dn_bfs_realtime').done(function (response) {
+			if (!response || !response.success) {
+				return;
+			}
+
+			var $popover = $('[data-dn-online-popover]').empty();
+			var $list = $('<ul></ul>');
+
+			$badge.find('[data-dn-online-count]').text(response.data.online);
+
+			$.each(response.data.pages || [], function (_, row) {
+				$list.append($('<li></li>').append($('<code></code>').text(row.path)).append($('<span></span>').text(' ' + row.visitors)));
+			});
+
+			$popover.append($('<h3></h3>').text(strings.activePages || 'Pages being viewed'));
+			$popover.append($list.children().length ? $list : $('<p></p>').text(strings.nobodyOnline || 'Nobody is online right now.'));
 		});
 	}
 
 	function normalizeSeries(data) {
 		if (data && $.isArray(data.series)) {
 			return data.series;
-		}
-
-		if (data && ($.isArray(data.netSales) || $.isArray(data.profits) || $.isArray(data.orders))) {
-			var salesSeries = [];
-
-			if ($.isArray(data.netSales)) {
-				salesSeries.push({
-					label: 'Net sales',
-					color: '#2271b1',
-					format: 'money',
-					axis: 'left',
-					values: data.netSales
-				});
-			}
-
-			if ($.isArray(data.profits)) {
-				salesSeries.push({
-					label: 'Profit',
-					color: '#00a32a',
-					format: 'money',
-					axis: 'left',
-					values: data.profits
-				});
-			}
-
-			if ($.isArray(data.orders)) {
-				salesSeries.push({
-					label: 'Orders',
-					color: '#7f54b3',
-					format: 'integer',
-					axis: 'right',
-					values: data.orders
-				});
-			}
-
-			return salesSeries;
 		}
 
 		if (data && $.isArray(data.values)) {
@@ -627,7 +695,7 @@
 	function renderFunnelChart(canvas, data, ctx, width, height, hasData) {
 		var labels = data.labels || [];
 		var values = data.values || [];
-		var colors = ['#2271b1', '#00a32a', '#dba617', '#7f54b3'];
+		var colors = ['#2271b1', '#00a32a', '#dba617', '#7f54b3', '#d63638'];
 		var chart = {
 			left: Math.min(142, Math.max(104, Math.floor(width * 0.28))),
 			right: 24,
@@ -777,10 +845,12 @@
 
 	$(document).on('click', '[data-dn-date-mode]', function () {
 		var mode = $(this).data('dn-date-mode');
+
 		$('[data-dn-date-mode]').removeClass('is-active');
 		$(this).addClass('is-active');
 		$('[data-dn-date-pane]').removeClass('is-active');
 		$('[data-dn-date-pane="' + mode + '"]').addClass('is-active');
+
 		if (mode === 'custom') {
 			$('input[name="dn_period"][value="custom"]').prop('checked', true);
 		}
@@ -788,45 +858,153 @@
 
 	$(document).on('submit', '[data-dn-date-popover]', function (event) {
 		var $form = $(this);
-		var customActive = $form.find('[data-dn-date-pane="custom"]').hasClass('is-active');
-		var state = {
-			period: customActive ? 'custom' : ($form.find('input[name="dn_period"]:checked').val() || 'month_to_date'),
-			compare: $form.find('input[name="dn_compare"]:checked').val() || 'previous_year',
-			start: $form.find('input[name="dn_start"]').val() || '',
-			end: $form.find('input[name="dn_end"]').val() || ''
-		};
+		var custom = $form.find('[data-dn-date-pane="custom"]').hasClass('is-active');
 
 		event.preventDefault();
-		setDateState(state);
+		state.period = custom ? 'custom' : ($form.find('input[name="dn_period"]:checked').val() || 'month_to_date');
+		state.compare = $form.find('input[name="dn_compare"]:checked').val() || 'previous_year';
+		state.start = $form.find('input[name="dn_start"]').val() || '';
+		state.end = $form.find('input[name="dn_end"]').val() || '';
 		$form.prop('hidden', true);
 		loadTab(getCurrentTab(), true);
 	});
 
-	$(document).on('change', '[data-dn-url-group] input[name="dn_group"]', function () {
-		loadUrlTable({
-			group: $(this).val(),
-			paged: 1
+	$(document).on('change', '[data-dn-dimension] input[name="dn_dimension"]', function () {
+		loadTable($(this).closest('.dn-burst-breakdown').find('[data-dn-table]'), { dimension: $(this).val(), orderby: '', order: 'desc', page: 1 });
+	});
+
+	$(document).on('click', '[data-dn-table] [data-dn-sort]', function (event) {
+		event.preventDefault();
+		loadTable($(this).closest('[data-dn-table]'), { orderby: $(this).attr('data-dn-sort'), order: $(this).attr('data-dn-order'), page: 1 });
+	});
+
+	$(document).on('click', '[data-dn-table] [data-dn-page]', function (event) {
+		event.preventDefault();
+		loadTable($(this).closest('[data-dn-table]'), { page: $(this).attr('data-dn-page') });
+	});
+
+	$(document).on('click keydown', 'tr[data-dn-drill-dimension]', function (event) {
+		if (event.type === 'keydown' && event.key !== 'Enter') {
+			return;
+		}
+
+		openDrilldown($(this).attr('data-dn-drill-dimension'), $(this).attr('data-dn-drill-value'));
+	});
+
+	$(document).on('click', '[data-dn-drawer-close]', function () {
+		drawer().prop('hidden', true);
+	});
+
+	$(document).on('keydown', function (event) {
+		if (event.key === 'Escape') {
+			drawer().prop('hidden', true);
+			$('[data-dn-filter-form], [data-dn-online-popover]').prop('hidden', true);
+		}
+	});
+
+	$(document).on('click', '[data-dn-apply-filter]', function () {
+		drawer().prop('hidden', true);
+		setFilter($(this).attr('data-dimension'), $(this).attr('data-value'));
+	});
+
+	$(document).on('click', '[data-dn-filter-remove]', function () {
+		setFilter($(this).closest('[data-dn-filter-dim]').attr('data-dn-filter-dim'), '');
+	});
+
+	$(document).on('click', '[data-dn-filter-toggle]', function () {
+		$('[data-dn-filter-form]').prop('hidden', function (_, hidden) {
+			return !hidden;
 		});
 	});
 
-	$(document).on('click', '[data-dn-sort]', function (event) {
-		var url = new URL(this.href, window.location.href);
+	var suggestTimer;
+
+	$(document).on('input change', '[data-dn-filter-value], [data-dn-filter-dimension]', function () {
+		var $form = $(this).closest('[data-dn-filter-form]');
+
+		window.clearTimeout(suggestTimer);
+		suggestTimer = window.setTimeout(function () {
+			post('dn_bfs_filter_values', {
+				dimension: $form.find('[data-dn-filter-dimension]').val(),
+				search: $form.find('[data-dn-filter-value]').val()
+			}).done(function (response) {
+				var $list = $('#dn-filter-values').empty();
+
+				if (response && response.success) {
+					$.each(response.data.values || [], function (_, value) {
+						$list.append($('<option></option>').attr('value', value));
+					});
+				}
+			});
+		}, 250);
+	});
+
+	$(document).on('submit', '[data-dn-filter-form]', function (event) {
+		var $form = $(this);
+		var value = $.trim($form.find('[data-dn-filter-value]').val());
 
 		event.preventDefault();
 
-		loadUrlTable({
-			orderby: $(this).data('dn-sort'),
-			order: url.searchParams.get('order') || 'desc',
-			paged: 1
+		if (value) {
+			$form.prop('hidden', true);
+			$form.find('[data-dn-filter-value]').val('');
+			setFilter($form.find('[data-dn-filter-dimension]').val(), value);
+		}
+	});
+
+	$(document).on('click', '[data-dn-cards-edit]', function () {
+		var $grid = cardsGrid();
+
+		cardsSnapshot = $grid.html();
+		$grid.addClass('is-editing');
+		toggleCardButtons(true);
+
+		if ($.fn.sortable) {
+			$grid.sortable({ items: '[data-dn-card]', tolerance: 'pointer' });
+		}
+	});
+
+	$(document).on('change', '[data-dn-card-visible]', function () {
+		$(this).closest('[data-dn-card]').toggleClass('is-hidden', !this.checked);
+	});
+
+	$(document).on('click', '[data-dn-cards-cancel]', function () {
+		exitCardEdit();
+		cardsGrid().html(cardsSnapshot);
+	});
+
+	$(document).on('click', '[data-dn-cards-save]', function () {
+		var cards = [];
+
+		cardsGrid().find('[data-dn-card]').each(function () {
+			if ($(this).find('[data-dn-card-visible]').prop('checked')) {
+				cards.push($(this).attr('data-dn-card'));
+			}
+		});
+
+		post('dn_bfs_save_cards', { cards: cards, cards_sent: 1 }).done(function (response) {
+			if (response && response.success) {
+				exitCardEdit();
+			} else {
+				window.alert(errorMessage(response));
+			}
+		}).fail(function (xhr) {
+			window.alert(errorMessage(xhr));
 		});
 	});
 
-	$(document).on('click', '[data-dn-page]', function (event) {
-		event.preventDefault();
-
-		loadUrlTable({
-			paged: $(this).data('dn-page')
+	$(document).on('click', '[data-dn-cards-reset]', function () {
+		post('dn_bfs_save_cards', { reset: 1 }).done(function () {
+			exitCardEdit();
+			loadTab(getCurrentTab(), false);
 		});
+	});
+
+	$(document).on('click', '[data-dn-online]', function () {
+		var $popover = $('[data-dn-online-popover]');
+
+		$popover.prop('hidden', !$popover.prop('hidden'));
+		$(this).attr('aria-expanded', String(!$popover.prop('hidden')));
 	});
 
 	$(document).on('click', '[data-dn-update-now]', function () {
@@ -835,23 +1013,20 @@
 		var $message = $panel.find('[data-dn-status-message]');
 
 		$button.prop('disabled', true);
-		$message.text(config.strings.loading);
+		$message.text(strings.loading || 'Loading data…');
 
-		$.post(config.ajaxUrl, datePayload({
-			action: 'dn_burst_funnel_stats_update_now',
-			nonce: config.nonce
-		})).done(function (response) {
+		post('dn_bfs_update_now').done(function (response) {
 			if (!response || !response.success) {
-				$message.text(response && response.data && response.data.message ? response.data.message : config.strings.error);
+				$message.text(errorMessage(response));
 				return;
 			}
 
 			$panel.find('[data-dn-last-update]').text(response.data.lastUpdate || '');
 			$panel.find('[data-dn-next-update]').text(response.data.nextUpdate || '');
-			$message.text(response.data.message || config.strings.updated);
+			$message.text(response.data.message || strings.updated || '');
 			loadTab(getCurrentTab(), false);
-		}).fail(function () {
-			$message.text(config.strings.error);
+		}).fail(function (xhr) {
+			$message.text(errorMessage(xhr));
 		}).always(function () {
 			$button.prop('disabled', false);
 		});
@@ -859,11 +1034,9 @@
 
 	$(document).on('input', '[data-dn-select-search]', function () {
 		var query = $(this).val().toLowerCase();
-		var $select = $(this).closest('[data-dn-searchable-select]').find('[data-dn-select-list]');
 
-		$select.find('option').each(function () {
-			var matches = $(this).text().toLowerCase().indexOf(query) !== -1;
-			$(this).prop('hidden', !matches);
+		$(this).closest('[data-dn-searchable-select]').find('[data-dn-select-list] option').each(function () {
+			$(this).prop('hidden', $(this).text().toLowerCase().indexOf(query) === -1);
 		});
 	});
 
@@ -876,16 +1049,31 @@
 
 	window.addEventListener('popstate', function () {
 		var params = new URLSearchParams(window.location.search);
-		setDateState({
-			period: params.get('dn_period') || config.period || 'month_to_date',
-			compare: params.get('dn_compare') || config.compare || 'previous_year',
-			start: params.get('dn_start') || config.start || '',
-			end: params.get('dn_end') || config.end || ''
+
+		state.period = params.get('dn_period') || config.period || 'month_to_date';
+		state.compare = params.get('dn_compare') || config.compare || 'previous_year';
+		state.start = params.get('dn_start') || '';
+		state.end = params.get('dn_end') || '';
+		state.filters = {};
+
+		params.forEach(function (value, key) {
+			var match = key.match(/^dn_filter\[(\w+)\]$/);
+
+			if (match) {
+				state.filters[match[1]] = value;
+			}
 		});
-		var tab = params.get('dn_tab') || config.currentTab || 'overview';
-		updateTopbarTitle(tab);
-		loadTab(tab, false);
+
+		renderFilterChips();
+		loadTab(params.get('dn_tab') || 'overview', false);
 	});
 
-	$(initCharts);
+	$(function () {
+		initCharts();
+
+		if ($('[data-dn-online]').length) {
+			refreshOnline();
+			window.setInterval(refreshOnline, 30000);
+		}
+	});
 })(jQuery);
