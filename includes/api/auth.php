@@ -102,12 +102,6 @@ function dn_bfs_api_ip_in_ranges( $ip, $ranges ) {
 }
 
 /**
- * Client IP for API allow-lists. Unlike the tracking helper it trusts no header
- * by default: CF-Connecting-IP only when the connection comes from a Cloudflare
- * range, X-Forwarded-For only when it comes from a trusted proxy (walked
- * right-to-left, skipping trusted proxies and Cloudflare hops).
- */
-/**
  * Normalises an address taken from REMOTE_ADDR or a proxy header: strips
  * brackets and ports ("1.2.3.4:80", "[2001:db8::1]:443") and unmaps
  * IPv4-mapped IPv6 ("::ffff:1.2.3.4"). Returns '' when it is not an IP.
@@ -134,6 +128,12 @@ function dn_bfs_api_normalize_ip( $value ) {
 	return $value;
 }
 
+/**
+ * Client IP for API allow-lists. Unlike the tracking helper it trusts no header
+ * by default: CF-Connecting-IP only when the connection comes from a Cloudflare
+ * range, X-Forwarded-For only when it comes from a trusted proxy (walked
+ * right-to-left, skipping trusted proxies and Cloudflare hops).
+ */
 function dn_bfs_api_resolve_client_ip( $server, $trusted_proxies, $cloudflare_ranges ) {
 	$remote = isset( $server['REMOTE_ADDR'] ) ? dn_bfs_api_normalize_ip( $server['REMOTE_ADDR'] ) : '';
 
