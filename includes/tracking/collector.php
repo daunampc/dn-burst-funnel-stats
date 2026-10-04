@@ -29,6 +29,11 @@ function dn_bfs_collect_blocked( $reason, $now ) {
 }
 
 function dn_bfs_rest_collect( WP_REST_Request $request ) {
+	// Loopback health check from the System status screen: answer without recording anything.
+	if ( '1' === (string) $request->get_header( 'x_dnbfs_check' ) ) {
+		return new WP_REST_Response( array( 'ok' => true ), 200 );
+	}
+
 	$now    = dn_bfs_now();
 	$server = array(
 		'REQUEST_METHOD' => $request->get_method(),
