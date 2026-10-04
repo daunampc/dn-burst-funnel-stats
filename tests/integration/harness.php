@@ -53,6 +53,11 @@ function dn_bfs_it_reset() {
 		}
 	}
 
+	// Report caching is off by default in tests; the cache test re-enables it locally.
+	add_filter( 'dn_bfs_report_cache_ttl', '__return_zero' );
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $wpdb->esc_like( '_transient_dnbfs_r_' ) . '%', $wpdb->esc_like( '_transient_timeout_dnbfs_r_' ) . '%' ) );
+	wp_cache_flush();
+
 	dn_bfs_it_settings( array() );
 	dn_bfs_it_set_now( null );
 	wp_set_current_user( 0 );

@@ -2,8 +2,6 @@
 
 require_once __DIR__ . '/seed.php';
 
-add_filter( 'dn_bfs_report_cache_ttl', '__return_zero' );
-
 function dn_bfs_it_breakdown_range( $days_back ) {
 	$today         = wp_date( 'Y-m-d', time() );
 	list( $start ) = dn_bfs_day_bounds( dn_bfs_date_shift( $today, -1 * $days_back ) );

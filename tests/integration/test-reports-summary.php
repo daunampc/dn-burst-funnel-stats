@@ -2,8 +2,6 @@
 
 require_once __DIR__ . '/seed.php';
 
-add_filter( 'dn_bfs_report_cache_ttl', '__return_zero' );
-
 function dn_bfs_it_range( $days_ago_start, $days_ago_end, $compare = 'previous_period' ) {
 	$today = wp_date( 'Y-m-d', time() );
 	list( $start ) = dn_bfs_day_bounds( dn_bfs_date_shift( $today, -1 * $days_ago_start ) );
@@ -185,5 +183,37 @@ dn_bfs_it(
 
 		$series = dn_bfs_report_timeseries( $range, array( 'sessions' ) );
 		dn_bfs_assert_same( array( 0, 0, 0, 0, 1 ), $series['series']['sessions'] );
+	}
+);
+
+dn_bfs_it(
+	'raw report rows are cached in a transient when the cache ttl is positive',
+	function () {
+		global $wpdb;
+
+		$ttl = function () {
+			return 60;
+		};
+		add_filter( 'dn_bfs_report_cache_ttl', $ttl, 20 );
+
+		try {
+			dn_bfs_it_seed_lagging_days( array( 0 ) );
+
+			list( $start ) = dn_bfs_it_day_range( 0 );
+			$end           = time() + 1;
+			$first         = dn_bfs_report_raw_rows( $start, $end, 'total', array() );
+
+			// A new session is not visible until the cached raw rows expire.
+			$s = dn_bfs_it_seed_session( array( 'started_at' => time() - 30 ) );
+			dn_bfs_it_seed_pageview( $s, '/', time() - 30 );
+			$second = dn_bfs_report_raw_rows( $start, $end, 'total', array() );
+
+			dn_bfs_assert_same( 1, $first['']['sessions'] );
+			dn_bfs_assert_same( $first, $second );
+			dn_bfs_assert_same( 2, dn_bfs_raw_rows( $start, $end, 'total', array() )['']['sessions'], 'uncached' );
+			dn_bfs_assert_true( (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( '_transient_dnbfs_r_' ) . '%' ) ) > 0, 'transient stored' );
+		} finally {
+			remove_filter( 'dn_bfs_report_cache_ttl', $ttl, 20 );
+		}
 	}
 );
