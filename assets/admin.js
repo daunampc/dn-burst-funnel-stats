@@ -33,7 +33,7 @@
 
 	function getCurrentTab() {
 		var $active = $('[data-dn-tab].nav-tab-active');
-		return $active.length ? $active.data('dn-tab') : (config.tab || 'overview');
+		return $active.length ? $active.attr('data-dn-tab') : (config.tab || 'overview');
 	}
 
 	function setLoading($region) {
@@ -115,7 +115,7 @@
 
 			$content.html(response.data.html);
 			$('[data-dn-tab]').removeClass('nav-tab-active').filter(function () {
-				return String($(this).data('dn-tab')) === String(tab);
+				return String($(this).attr('data-dn-tab')) === String(tab);
 			}).addClass('nav-tab-active');
 			$('.dn-burst-topbar-title').text(response.data.title);
 			config.tab = tab;
@@ -303,10 +303,26 @@
 		var decimals = abs > 0 && abs < 10 && format !== 'integer' ? 1 : 0;
 
 		if (format === 'money') {
-			return '$' + number.toLocaleString(undefined, {
-				minimumFractionDigits: abs > 0 && abs < 10 ? 2 : 0,
-				maximumFractionDigits: 2
+			var currency = config.currency || {};
+			var places = currency.decimals == null ? 2 : Number(currency.decimals);
+			var symbol = currency.symbol || '$';
+			var position = currency.position || 'left';
+			var text = Math.abs(number).toLocaleString(undefined, {
+				minimumFractionDigits: abs > 0 && abs < 10 ? places : 0,
+				maximumFractionDigits: places
 			});
+
+			if (position === 'right') {
+				text = text + symbol;
+			} else if (position === 'right_space') {
+				text = text + '\u00a0' + symbol;
+			} else if (position === 'left_space') {
+				text = symbol + '\u00a0' + text;
+			} else {
+				text = symbol + text;
+			}
+
+			return (number < 0 ? '-' : '') + text;
 		}
 
 		if (format === 'percent') {
@@ -686,7 +702,7 @@
 
 		bindTooltip(canvas, tooltipItems, function (item) {
 			return tooltipRows(item.label, [{
-				label: 'Sales',
+				label: strings.sales || 'Sales',
 				color: item.color,
 				value: formatValue(item.value, item.format)
 			}]);
@@ -770,15 +786,15 @@
 
 		bindTooltip(canvas, hasData ? tooltipItems : [], function (item) {
 			return tooltipRows(item.label, [{
-				label: 'Value',
+				label: strings.value || 'Value',
 				color: item.color,
 				value: formatValue(item.value, 'integer')
 			}, {
-				label: 'Step conversion',
+				label: strings.stepConversion || 'Step conversion',
 				color: item.color,
 				value: formatValue(item.stepRate, 'percent')
 			}, {
-				label: 'Of visits',
+				label: strings.ofVisits || 'Of visits',
 				color: item.color,
 				value: formatValue(item.visitRate, 'percent')
 			}]);
@@ -835,7 +851,7 @@
 
 	$(document).on('click', '[data-dn-tab]', function (event) {
 		event.preventDefault();
-		loadTab($(this).data('dn-tab'), true);
+		loadTab($(this).attr('data-dn-tab'), true);
 	});
 
 	$(document).on('click', '[data-dn-date-toggle]', function () {
@@ -1087,7 +1103,7 @@
 		renderFilterChips();
 		var wantedTab = params.get('dn_tab') || 'overview';
 		var knownTab = $('[data-dn-tab]').filter(function () {
-			return String($(this).data('dn-tab')) === wantedTab;
+			return String($(this).attr('data-dn-tab')) === wantedTab;
 		}).length;
 
 		loadTab(knownTab ? wantedTab : 'overview', false);

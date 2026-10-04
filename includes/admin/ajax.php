@@ -116,7 +116,7 @@ function dn_bfs_ajax_drilldown_payload( $params ) {
 		'html' => dn_bfs_dash_drilldown_html(
 			$range,
 			$filters,
-			isset( $params['dimension'] ) ? (string) $params['dimension'] : '',
+			isset( $params['dimension'] ) && is_scalar( $params['dimension'] ) ? (string) $params['dimension'] : '',
 			isset( $params['value'] ) && is_scalar( $params['value'] ) ? (string) $params['value'] : ''
 		),
 	);

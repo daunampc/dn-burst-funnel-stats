@@ -23,7 +23,7 @@ function dn_bfs_dash_tabs() {
 }
 
 function dn_bfs_dash_sanitize_tab( $tab ) {
-	$tab = sanitize_key( (string) $tab );
+	$tab = is_scalar( $tab ) ? sanitize_key( (string) $tab ) : '';
 
 	return array_key_exists( $tab, dn_bfs_dash_tabs() ) ? $tab : 'overview';
 }

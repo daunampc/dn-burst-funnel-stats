@@ -61,7 +61,16 @@ function dn_bfs_admin_script_data() {
 		'end'          => 'custom' === $range['period'] ? $range['custom_end'] : '',
 		'filters'      => (object) $filters,
 		'filterLabels' => array_intersect_key( $labels, array_flip( dn_bfs_filter_dimensions() ) ),
+		'currency'     => array(
+			'symbol'   => html_entity_decode( function_exists( 'get_woocommerce_currency_symbol' ) ? get_woocommerce_currency_symbol() : '$', ENT_QUOTES, 'UTF-8' ),
+			'position' => function_exists( 'get_option' ) ? (string) get_option( 'woocommerce_currency_pos', 'left' ) : 'left',
+			'decimals' => function_exists( 'wc_get_price_decimals' ) ? (int) wc_get_price_decimals() : 2,
+		),
 		'strings'      => array(
+			'sales'          => __( 'Sales', 'dn-burst-funnel-stats' ),
+			'value'          => __( 'Value', 'dn-burst-funnel-stats' ),
+			'stepConversion' => __( 'Step conversion', 'dn-burst-funnel-stats' ),
+			'ofVisits'       => __( 'Of visits', 'dn-burst-funnel-stats' ),
 			'loading'      => __( 'Loading data…', 'dn-burst-funnel-stats' ),
 			'error'        => __( 'Unable to load data. Please try again.', 'dn-burst-funnel-stats' ),
 			'updated'      => __( 'Data refreshed.', 'dn-burst-funnel-stats' ),
