@@ -96,3 +96,48 @@ dn_bfs_it(
 		dn_bfs_assert_same( '-25.0%', dn_bfs_dash_change( array( 'previous' => array(), 'change' => array( 'visitors' => -25.0 ) ), 'visitors' ) );
 	}
 );
+
+dn_bfs_it_today(
+	'tip, balance and refund-net card values follow the money contract',
+	function () {
+		dn_bfs_raw_get_order( 0, true );
+
+		$now     = dn_bfs_it_now();
+		$product = (int) wc_get_products( array( 'limit' => 1, 'status' => 'publish', 'orderby' => 'ID', 'order' => 'ASC', 'return' => 'ids' ) )[0];
+		$price   = (float) wc_get_product( $product )->get_price();
+		$session = dn_bfs_it_seed_session( array( 'started_at' => $now - 120 ) );
+
+		$paid = wc_create_order();
+		$paid->add_product( wc_get_product( $product ), 2 );
+		$fee = new WC_Order_Item_Fee();
+		$fee->set_name( 'Tip' );
+		$fee->set_total( 3.0 );
+		$paid->add_item( $fee );
+		$paid->calculate_totals();
+		$paid->set_status( 'processing' );
+		$paid->save();
+
+		$pending = wc_create_order();
+		$pending->add_product( wc_get_product( $product ), 1 );
+		$pending->calculate_totals();
+		$pending->set_status( 'pending' );
+		$pending->save();
+
+		dn_bfs_it_seed_event( $session, 'order', $now - 60, array( 'order_id' => $paid->get_id() ) );
+		dn_bfs_it_seed_event( $session, 'order', $now - 50, array( 'order_id' => $pending->get_id() ) );
+		wc_create_refund( array( 'order_id' => $paid->get_id(), 'amount' => 5 ) );
+		dn_bfs_raw_get_order( 0, true );
+
+		$cards = dn_bfs_dashboard_cards( dn_bfs_report_summary( dn_bfs_calculate_date_range( 'today', 'none' ) ) );
+		$plain = function ( $money ) {
+			return wp_strip_all_tags( wc_price( $money ) );
+		};
+
+		$sales = $price * 3 + 3.0 - 5;
+		$paidv = (float) $paid->get_total() - 5;
+
+		dn_bfs_assert_same( $plain( $sales ), wp_strip_all_tags( $cards['sales_tip']['main'] ), 'sales net of refund, pending included' );
+		dn_bfs_assert_same( 'Tip: ' . $plain( 3.0 ), wp_strip_all_tags( $cards['sales_tip']['secondary'] ), 'tip is gross' );
+		dn_bfs_assert_same( $plain( $paidv ) . ' / ' . $plain( (float) $pending->get_total() ), wp_strip_all_tags( $cards['paid_balance']['main'] ), 'paid net of refund / balance' );
+	}
+);

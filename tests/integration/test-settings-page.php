@@ -57,7 +57,9 @@ dn_bfs_it_today(
 		dn_bfs_assert_same( 'invalid_date', dn_bfs_reaggregate_range( 'x', $day )->get_error_code() );
 
 		dn_bfs_assert_same( 'confirm_required', dn_bfs_purge_all_data( 'yes' )->get_error_code() );
+		set_transient( 'dnbfs_r_purgecheck', array( 'x' ), 600 );
 		dn_bfs_assert_same( true, dn_bfs_purge_all_data( 'DELETE' ) );
+		dn_bfs_assert_same( false, get_transient( 'dnbfs_r_purgecheck' ), 'report cache cleared by purge' );
 		dn_bfs_assert_same( 0, dn_bfs_it_count( 'sessions' ) );
 
 		dn_bfs_it_settings( array( 'maxmind_license_key' => 'SECRET_KEY', 'session_timeout' => 45 ) );
@@ -213,5 +215,27 @@ dn_bfs_it(
 
 		$message = dn_bfs_settings_notice( 'geoip_http://evil.example/x' )[1];
 		dn_bfs_assert_true( false === strpos( $message, 'evil' ), 'unknown reason not echoed' );
+	}
+);
+
+dn_bfs_it(
+	'changing WooCommerce revenue rules yields the re-aggregate notice, unchanged values do not',
+	function () {
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
+		$post = array( 'dn_bfs' => dn_bfs_it_group_values( 'woocommerce' ) );
+
+		$post['dn_bfs']['tip_keywords'] = implode( "\n", $post['dn_bfs']['tip_keywords'] );
+		dn_bfs_settings_save_from_post( 'woocommerce', $post );
+
+		dn_bfs_assert_same( 'saved', dn_bfs_settings_save_from_post( 'woocommerce', $post ), 'unchanged' );
+
+		$post['dn_bfs']['paid_statuses'] = array( 'wc-completed' );
+		dn_bfs_assert_same( 'saved_wc_rules', dn_bfs_settings_save_from_post( 'woocommerce', $post ), 'changed' );
+		dn_bfs_assert_same( 'saved', dn_bfs_settings_save_from_post( 'woocommerce', $post ), 'same again' );
+
+		$list = dn_bfs_settings_notice( 'saved_wc_rules' );
+		dn_bfs_assert_true( false !== strpos( $list[1], 'Re-aggregate' ), 'notice points to re-aggregate' );
+
+		delete_option( 'dn_burst_funnel_stats_wc_report_settings' );
 	}
 );

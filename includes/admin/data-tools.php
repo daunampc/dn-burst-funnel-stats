@@ -100,6 +100,12 @@ function dn_bfs_purge_all_data( $confirm ) {
 		delete_option( $option );
 	}
 
+	$names = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( '_transient_dnbfs_r_' ) . '%' ) );
+
+	foreach ( (array) $names as $name ) {
+		delete_transient( substr( $name, strlen( '_transient_' ) ) );
+	}
+
 	return true;
 }
 

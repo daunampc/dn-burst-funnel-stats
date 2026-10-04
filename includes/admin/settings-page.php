@@ -41,7 +41,8 @@ function dn_bfs_settings_url( $tab, $args = array() ) {
 }
 
 function dn_bfs_settings_fields() {
-	$ranges = dn_bfs_tracking_int_ranges();
+	$ranges     = dn_bfs_tracking_int_ranges();
+	$rules_note = __( 'Changes apply to new days only. Days already aggregated keep the old rules until you re-aggregate them in Settings → Data → Re-aggregate.', 'dn-burst-funnel-stats' );
 	$number = function ( $key, $label, $unit, $description = '' ) use ( $ranges ) {
 		return array(
 			'key'         => $key,
@@ -84,10 +85,10 @@ function dn_bfs_settings_fields() {
 		),
 		'woocommerce' => array(
 			array( 'key' => 'force_cart_redirect', 'type' => 'checkbox', 'label' => __( 'Add to cart', 'dn-burst-funnel-stats' ), 'text' => __( 'Send shoppers to the Cart page after adding a product', 'dn-burst-funnel-stats' ) ),
-			array( 'key' => 'sales_excluded_statuses', 'type' => 'statuses', 'label' => __( 'Not counted as sales', 'dn-burst-funnel-stats' ) ),
-			array( 'key' => 'paid_statuses', 'type' => 'statuses', 'label' => __( 'Counted as paid', 'dn-burst-funnel-stats' ) ),
-			array( 'key' => 'balance_statuses', 'type' => 'statuses', 'label' => __( 'Counted as balance', 'dn-burst-funnel-stats' ) ),
-			array( 'key' => 'tip_keywords', 'type' => 'lines', 'label' => __( 'Tip fee keywords', 'dn-burst-funnel-stats' ), 'description' => __( 'Order fees whose name contains one of these words count as tips.', 'dn-burst-funnel-stats' ) ),
+			array( 'key' => 'sales_excluded_statuses', 'type' => 'statuses', 'label' => __( 'Not counted as sales', 'dn-burst-funnel-stats' ), 'description' => $rules_note ),
+			array( 'key' => 'paid_statuses', 'type' => 'statuses', 'label' => __( 'Counted as paid', 'dn-burst-funnel-stats' ), 'description' => $rules_note ),
+			array( 'key' => 'balance_statuses', 'type' => 'statuses', 'label' => __( 'Counted as balance', 'dn-burst-funnel-stats' ), 'description' => $rules_note ),
+			array( 'key' => 'tip_keywords', 'type' => 'lines', 'label' => __( 'Tip fee keywords', 'dn-burst-funnel-stats' ), 'description' => __( 'Order fees whose name contains one of these words count as tips.', 'dn-burst-funnel-stats' ) . ' ' . $rules_note ),
 		),
 		'geoip'       => array(
 			array( 'key' => 'prefer_cloudflare', 'type' => 'checkbox', 'label' => __( 'Cloudflare', 'dn-burst-funnel-stats' ), 'text' => __( 'Use Cloudflare country headers when present', 'dn-burst-funnel-stats' ) ),
@@ -133,10 +134,26 @@ function dn_bfs_settings_input_from_post( $group, $post ) {
 	return $input;
 }
 
+function dn_bfs_wc_revenue_rules() {
+	$settings = dn_bfs_get_wc_report_settings();
+
+	return array(
+		'sales_excluded_statuses' => $settings['sales_excluded_statuses'],
+		'paid_statuses'           => $settings['paid_statuses'],
+		'balance_statuses'        => $settings['balance_statuses'],
+		'tip_keywords'            => $settings['tip_keywords'],
+	);
+}
+
 function dn_bfs_settings_save_from_post( $group, $post ) {
+	$before = dn_bfs_wc_revenue_rules();
 	$result = dn_bfs_save_settings_group( $group, dn_bfs_settings_input_from_post( $group, $post ) );
 
-	return is_wp_error( $result ) ? $result->get_error_code() : 'saved';
+	if ( is_wp_error( $result ) ) {
+		return $result->get_error_code();
+	}
+
+	return dn_bfs_wc_revenue_rules() !== $before ? 'saved_wc_rules' : 'saved';
 }
 
 function dn_bfs_reaggregate_outcome( $result ) {
@@ -183,9 +200,14 @@ function dn_bfs_settings_data_task( $task, $post, $files ) {
 				return array( 'tab' => 'data', 'notice' => 'missing_file' );
 			}
 
+			$before = dn_bfs_wc_revenue_rules();
 			$result = dn_bfs_import_settings( json_decode( (string) file_get_contents( $files['import_file']['tmp_name'] ), true ) );
 
-			return array( 'tab' => 'data', 'notice' => is_wp_error( $result ) ? $result->get_error_code() : 'imported' );
+			if ( is_wp_error( $result ) ) {
+				return array( 'tab' => 'data', 'notice' => $result->get_error_code() );
+			}
+
+			return array( 'tab' => 'data', 'notice' => dn_bfs_wc_revenue_rules() !== $before ? 'imported_wc_rules' : 'imported' );
 		case 'geoip_update':
 			$result = dn_bfs_geoip_update_now();
 
@@ -202,6 +224,8 @@ function dn_bfs_settings_data_task( $task, $post, $files ) {
 function dn_bfs_settings_notice( $code, $args = array() ) {
 	$messages = array(
 		'saved'            => array( 'success', __( 'Settings saved.', 'dn-burst-funnel-stats' ) ),
+		'saved_wc_rules'   => array( 'warning', __( 'Settings saved. Days that were already aggregated keep the old WooCommerce revenue rules. To apply the new rules to past days, go to Settings → Data → Re-aggregate.', 'dn-burst-funnel-stats' ) ),
+		'imported_wc_rules' => array( 'warning', __( 'Settings imported. Days that were already aggregated keep the old WooCommerce revenue rules. To apply the new rules to past days, go to Settings → Data → Re-aggregate.', 'dn-burst-funnel-stats' ) ),
 		'reaggregated'     => array( 'success', __( 'The selected days were re-aggregated.', 'dn-burst-funnel-stats' ) ),
 		'purged'           => array( 'success', __( 'All tracking data was deleted.', 'dn-burst-funnel-stats' ) ),
 		'imported'         => array( 'success', __( 'Settings imported.', 'dn-burst-funnel-stats' ) ),

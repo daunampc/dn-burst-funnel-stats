@@ -86,7 +86,7 @@ function dn_bfs_status_collect() {
 	$response = wp_remote_post(
 		rest_url( 'dnbfs/v1/collect' ),
 		array(
-			'timeout' => 10,
+			'timeout' => 3,
 			'headers' => array( 'X-DNBFS-Check' => '1' ),
 			'body'    => '',
 		)
@@ -114,7 +114,7 @@ function dn_bfs_status_tracker() {
 		return dn_bfs_status_check( 'tracker', $label, 'warning', __( 'Tracking is turned off in General settings.', 'dn-burst-funnel-stats' ) );
 	}
 
-	$response = wp_remote_get( home_url( '/' ), array( 'timeout' => 10 ) );
+	$response = wp_remote_get( home_url( '/' ), array( 'timeout' => 3 ) );
 
 	if ( ! is_wp_error( $response ) && false !== strpos( wp_remote_retrieve_body( $response ), 'window.dnbfsPage' ) ) {
 		return dn_bfs_status_check( 'tracker', $label, 'ok', __( 'The tracker is present on the home page.', 'dn-burst-funnel-stats' ) );
@@ -152,7 +152,7 @@ function dn_bfs_status_geoip_public() {
 	}
 
 	$uploads  = wp_upload_dir( null, false );
-	$response = wp_remote_head( trailingslashit( $uploads['baseurl'] ) . 'dnbfs/GeoLite2-City.mmdb', array( 'timeout' => 10 ) );
+	$response = wp_remote_head( trailingslashit( $uploads['baseurl'] ) . 'dnbfs/GeoLite2-City.mmdb', array( 'timeout' => 3 ) );
 
 	if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
 		return dn_bfs_status_check( 'geoip_public', $label, 'warning', __( 'The GeoIP file can be downloaded publicly. Block uploads/dnbfs in your web server configuration.', 'dn-burst-funnel-stats' ) );
