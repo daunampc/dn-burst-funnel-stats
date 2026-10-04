@@ -24,9 +24,11 @@ dn_bfs_it(
 );
 
 dn_bfs_it(
-	'plugin version is 3.0.0 and no legacy tracking helpers remain',
+	'plugin version matches the header and no legacy tracking helpers remain',
 	function () {
-		dn_bfs_assert_same( '3.0.0', DN_BURST_FUNNEL_STATS_VERSION );
+		$data = get_file_data( DN_BURST_FUNNEL_STATS_FILE, array( 'Version' => 'Version' ) );
+		dn_bfs_assert_same( $data['Version'], DN_BURST_FUNNEL_STATS_VERSION, 'constant equals plugin header version' );
+		dn_bfs_assert_same( '3.1.0', DN_BURST_FUNNEL_STATS_VERSION );
 
 		foreach ( array( 'dn_bfs_is_ip_excluded', 'dn_bfs_is_bot_request', 'dn_bfs_is_selected_page_request', 'dn_bfs_should_track_request' ) as $function ) {
 			dn_bfs_assert_true( ! function_exists( $function ), $function );

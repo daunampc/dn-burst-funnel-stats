@@ -4,7 +4,7 @@ Tags: woocommerce, analytics, funnel, ecommerce, dashboard
 Requires at least: 6.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 3.0.0
+Stable tag: 3.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -127,9 +127,24 @@ Raw hits are aggregated into daily totals every hour. If WP-Cron is disabled, ma
 
 == GitHub Updates ==
 
-The plugin updates from GitHub releases. Create a release with a tag such as `v3.0.1` and attach `dn-burst-funnel-stats.zip`.
+The plugin updates from GitHub releases. Create a release with a tag such as `v3.0.1` and attach the zip built below (any `.zip` asset works; its top-level folder must be `dn-burst-funnel-stats/`).
+
+== Build ==
+
+Build the release package (runtime files only, honoring `.distignore`) into `dist/dn-burst-funnel-stats-<version>.zip`:
+
+`docker run --rm -v "$PWD":/app -w /app alpine sh -c "apk add --no-cache bash zip rsync >/dev/null && bash bin/build-zip.sh"`
 
 == Changelog ==
+
+= 3.1.0 =
+* New public read-only REST API under `/wp-json/dnbfs/v1`: `meta`, `stats/summary`, `stats/timeseries`, `stats/breakdown`, `stats/funnel`, `stats/realtime` and `openapi.json`.
+* API keys with a visible prefix and HMAC-hashed secret storage, per-key scopes and an optional IP allow-list that resolves the client IP in a spoof-resistant way.
+* Atomic per-key rate limiting; limited requests receive `429` with a `Retry-After` header.
+* New Settings → API tab to create, scope and revoke keys; System status now checks the API.
+* README includes a NestJS integration example.
+* Chart money values use the WooCommerce thousand and decimal separators.
+* The WooCommerce rule-change warning no longer triggers when only the order of rules changes.
 
 = 3.0.0 =
 * Built-in visitor tracking replaces Burst Statistics.
