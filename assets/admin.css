@@ -800,6 +800,11 @@
   padding: 0;
   border-bottom: 1px solid var(--dn-burst-border);
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dn-burst-wrap .dn-burst-tabs.nav-tab-wrapper::-webkit-scrollbar {
+  display: none;
 }
 
 .dn-burst-wrap .dn-burst-tabs .nav-tab {
@@ -1403,6 +1408,10 @@
   }
 
   .dn-burst-funnel-stats .dn-burst-dashboard-toolbar,
+  .dn-burst-funnel-stats .dn-burst-filter-bar {
+    padding: 0 20px;
+  }
+
   .dn-burst-funnel-stats .dn-burst-dashboard-content {
     padding-left: 20px;
     padding-right: 20px;
@@ -1431,6 +1440,7 @@
   align-items: center;
   gap: 8px;
   margin: 12px 0;
+  padding: 0 32px;
 }
 
 .dn-burst-filter-chips {
@@ -1518,7 +1528,7 @@
 .dn-burst-card-toggle {
   display: none;
   position: absolute;
-  top: 8px;
+  bottom: 8px;
   right: 8px;
 }
 
@@ -1532,7 +1542,7 @@
 }
 
 .dn-burst-grid.is-editing .dn-burst-card.is-hidden {
-  display: block;
+  display: flex;
   opacity: 0.45;
 }
 
@@ -1618,6 +1628,7 @@
 
 .dn-burst-drawer-stat strong {
   display: block;
+  white-space: nowrap;
   font-size: 18px;
 }
 
@@ -1685,5 +1696,20 @@
 @media (max-width: 782px) {
   .dn-burst-drawer {
     top: 46px;
+  }
+}
+
+.dn-burst-wrap [hidden] {
+  display: none !important;
+}
+
+.dn-burst-settings.wrap {
+  margin: 0;
+  padding: 20px 32px 0;
+}
+
+@media (max-width: 782px) {
+  .dn-burst-settings.wrap {
+    padding: 20px 20px 0;
   }
 }

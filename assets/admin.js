@@ -114,8 +114,9 @@
 			}
 
 			$content.html(response.data.html);
-			$('[data-dn-tab]').removeClass('nav-tab-active');
-			$('[data-dn-tab="' + tab + '"]').addClass('nav-tab-active');
+			$('[data-dn-tab]').removeClass('nav-tab-active').filter(function () {
+				return String($(this).data('dn-tab')) === String(tab);
+			}).addClass('nav-tab-active');
 			$('.dn-burst-topbar-title').text(response.data.title);
 			config.tab = tab;
 			updateDateButton(response.data.range);
@@ -898,7 +899,7 @@
 	$(document).on('keydown', function (event) {
 		if (event.key === 'Escape') {
 			drawer().prop('hidden', true);
-			$('[data-dn-filter-form], [data-dn-online-popover]').prop('hidden', true);
+			$('[data-dn-filter-form], [data-dn-online-popover], [data-dn-date-popover]').prop('hidden', true);
 		}
 	});
 
@@ -918,13 +919,18 @@
 	});
 
 	var suggestTimer;
+	var suggestXhr;
 
 	$(document).on('input change', '[data-dn-filter-value], [data-dn-filter-dimension]', function () {
 		var $form = $(this).closest('[data-dn-filter-form]');
 
 		window.clearTimeout(suggestTimer);
 		suggestTimer = window.setTimeout(function () {
-			post('dn_bfs_filter_values', {
+			if (suggestXhr && suggestXhr.abort) {
+				suggestXhr.abort();
+			}
+
+			suggestXhr = post('dn_bfs_filter_values', {
 				dimension: $form.find('[data-dn-filter-dimension]').val(),
 				search: $form.find('[data-dn-filter-value]').val()
 			}).done(function (response) {
@@ -954,6 +960,14 @@
 
 	$(document).on('click', '[data-dn-cards-edit]', function () {
 		var $grid = cardsGrid();
+
+		$grid.find('[data-dn-card-visible]').each(function () {
+			if (this.checked) {
+				this.setAttribute('checked', 'checked');
+			} else {
+				this.removeAttribute('checked');
+			}
+		});
 
 		cardsSnapshot = $grid.html();
 		$grid.addClass('is-editing');
@@ -994,9 +1008,15 @@
 	});
 
 	$(document).on('click', '[data-dn-cards-reset]', function () {
-		post('dn_bfs_save_cards', { reset: 1 }).done(function () {
-			exitCardEdit();
-			loadTab(getCurrentTab(), false);
+		post('dn_bfs_save_cards', { reset: 1 }).done(function (response) {
+			if (response && response.success) {
+				exitCardEdit();
+				loadTab(getCurrentTab(), false);
+			} else {
+				window.alert(errorMessage(response));
+			}
+		}).fail(function (xhr) {
+			window.alert(errorMessage(xhr));
 		});
 	});
 
@@ -1065,7 +1085,12 @@
 		});
 
 		renderFilterChips();
-		loadTab(params.get('dn_tab') || 'overview', false);
+		var wantedTab = params.get('dn_tab') || 'overview';
+		var knownTab = $('[data-dn-tab]').filter(function () {
+			return String($(this).data('dn-tab')) === wantedTab;
+		}).length;
+
+		loadTab(knownTab ? wantedTab : 'overview', false);
 	});
 
 	$(function () {
