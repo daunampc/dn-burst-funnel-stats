@@ -32,6 +32,10 @@ dn_bfs_it(
 			array( dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2026-13-01', 'end' => '2026-01-02' ) ), 'invalid_date' ),
 			array( dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2026-02-01', 'end' => '2026-01-01' ) ), 'invalid_date' ),
 			array( dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2020-01-01', 'end' => '2026-01-01' ) ), 'range_too_long' ),
+			array( dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2026-02-30', 'end' => '2026-03-05' ) ), 'invalid_date' ),
+			array( dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2024-01-01', 'end' => '2026-01-02' ) ), 'range_too_long' ),
+			array( dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '0001-01-01', 'end' => '9999-12-31' ) ), 'range_too_long' ),
+			array( dn_bfs_parse_metrics( array( 'sessions', array( 'x' ) ) ), 'invalid_metric' ),
 			array( dn_bfs_parse_filters( array( 'filter' => array( 'browser' => 'Chrome' ) ) ), 'invalid_filter' ),
 			array( dn_bfs_parse_filters( array( 'filter' => array( 'campaign' => ' ' ) ) ), 'invalid_filter' ),
 			array( dn_bfs_parse_filters( array( 'filter' => 'campaign' ) ), 'invalid_filter' ),
@@ -53,6 +57,7 @@ dn_bfs_it(
 		dn_bfs_assert_same( array(), dn_bfs_parse_filters( array() ) );
 		dn_bfs_assert_same( array( 'sessions', 'bounce_rate' ), dn_bfs_parse_metrics( array( 'sessions', 'bounce_rate', 'sessions' ) ) );
 		dn_bfs_assert_same( array( 'sessions', 'orders', 'revenue' ), dn_bfs_parse_metrics( '' ) );
+		dn_bfs_assert_same( array( 'sessions', 'orders' ), dn_bfs_parse_metrics( array( ' sessions ', 'orders' ) ) );
 	}
 );
 
@@ -86,8 +91,22 @@ dn_bfs_it(
 		dn_bfs_it_login_admin();
 		dn_bfs_assert_same( true, dn_bfs_admin_permission() );
 
-		add_filter( 'dn_bfs_capability', function () { return 'do_not_exist_cap'; } );
+		$deny = function () { return 'do_not_exist_cap'; };
+		add_filter( 'dn_bfs_capability', $deny );
 		dn_bfs_assert_same( false, dn_bfs_admin_permission() );
-		remove_all_filters( 'dn_bfs_capability' );
+		remove_filter( 'dn_bfs_capability', $deny );
+	}
+);
+
+dn_bfs_it(
+	'custom range accepts exactly 731 days inclusive and rejects 732',
+	function () {
+		$ok = dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2024-01-01', 'end' => '2025-12-31' ) );
+		dn_bfs_assert_true( ! is_wp_error( $ok ), '731 days accepted' );
+		dn_bfs_assert_same( '2025-12-31', $ok['custom_end'] );
+
+		$bad = dn_bfs_parse_range( array( 'period' => 'custom', 'start' => '2024-01-01', 'end' => '2026-01-01' ) );
+		dn_bfs_assert_true( is_wp_error( $bad ), '732 days rejected' );
+		dn_bfs_assert_same( 'range_too_long', $bad->get_error_code() );
 	}
 );

@@ -55,7 +55,10 @@ function dn_bfs_parse_range( $params ) {
 			return dn_bfs_request_error( 'invalid_date', __( 'Use valid start and end dates in YYYY-MM-DD format.', 'dn-burst-funnel-stats' ) );
 		}
 
-		if ( count( dn_bfs_dates_between( $start, $end ) ) > 731 ) {
+		$utc  = new DateTimeZone( 'UTC' );
+		$span = (int) ( new DateTimeImmutable( $start . ' 00:00:00', $utc ) )->diff( new DateTimeImmutable( $end . ' 00:00:00', $utc ) )->days;
+
+		if ( $span > 730 ) {
 			return dn_bfs_request_error( 'range_too_long', __( 'Custom ranges can cover at most 731 days.', 'dn-burst-funnel-stats' ) );
 		}
 	}
@@ -86,7 +89,15 @@ function dn_bfs_parse_filters( $params ) {
 }
 
 function dn_bfs_parse_metrics( $value ) {
-	$metrics = is_array( $value ) ? $value : array_filter( array_map( 'trim', explode( ',', (string) $value ) ) );
+	if ( is_array( $value ) ) {
+		foreach ( $value as $metric ) {
+			if ( ! is_scalar( $metric ) ) {
+				return dn_bfs_request_error( 'invalid_metric', __( 'Metrics must be a list of metric names.', 'dn-burst-funnel-stats' ) );
+			}
+		}
+	}
+
+	$metrics = array_filter( array_map( 'trim', is_array( $value ) ? array_map( 'strval', $value ) : explode( ',', (string) $value ) ), 'strlen' );
 
 	if ( empty( $metrics ) ) {
 		return array( 'sessions', 'orders', 'revenue' );

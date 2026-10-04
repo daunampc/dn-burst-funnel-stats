@@ -2,7 +2,7 @@
 
 - Ngày: 2026-10-03
 - Phiên bản đích: plugin **3.0.0**, schema **4**
-- Trạng thái: Thiết kế đã duyệt (gồm giao diện React)
+- Trạng thái: Thiết kế đã duyệt (gồm giao diện admin PHP)
 
 ## 1. Mục tiêu
 
@@ -290,20 +290,19 @@ includes/
   api/routes.php          (REST công khai)
   api/openapi.php
   admin/routes.php        (REST nội bộ)
-  admin/pages.php         (menu, nạp bundle, div mount)
+  admin/pages.php         (menu, nạp assets, render HTML)
   admin/dashboard-widget.php
   date-ranges.php
   class-github-updater.php
 lib/maxmind-db/           (MaxMind\Db\Reader thuần PHP, Apache-2.0)
-src/admin/                (React: dashboard/, settings/, components/, store/, utils/)
-build/                    (bundle đã build, commit)
 assets/tracker.js
-package.json, composer.json, phpunit.xml.dist
-tests/php/, src/admin/**/__tests__/
+assets/admin.js, assets/admin.css, assets/dashboard-widget.js  (jQuery viết tay, không có bước build)
+composer.json, phpunit.xml.dist
+tests/php/ (unit), tests/integration/ (tích hợp WordPress)
 docker/
 ```
 
-Import/Export (Settings → Dữ liệu): xuất/nhập Settings (không gồm API key); không xuất dữ liệu thô. Xóa `includes/ajax.php`, `includes/admin-menu.php`, `includes/dashboard.php`, `includes/import-export.php`, `assets/admin.js`, `assets/admin.css` sau khi phần thay thế hoàn tất.
+Import/Export (Settings → Dữ liệu): xuất/nhập Settings (không gồm API key); không xuất dữ liệu thô. Xóa `includes/ajax.php`, `includes/admin-menu.php`, `includes/dashboard.php`, `includes/import-export.php` sau khi phần thay thế hoàn tất.
 
 ## 12. Môi trường test bằng Docker
 
@@ -314,7 +313,6 @@ Máy dev không có PHP/Composer, nên mọi thứ chạy trong container.
 - `wordpress`: image `wordpress:php8.2-apache`, mount plugin vào `/var/www/html/wp-content/plugins/dn-burst-funnel-stats`, cổng `8080`.
 - `wpcli`: image `wordpress:cli`, cùng volume.
 - `phpunit`: image `composer` + PHP 8.2, chạy `composer install` và `vendor/bin/phpunit` trên thư mục plugin.
-- `node`: image `node:20`, chạy `npm ci`, `npm run build`, `npm test` (Jest qua `@wordpress/scripts`).
 
 `docker/setup.sh` (idempotent): cài WordPress (`http://localhost:8080`), cài + kích hoạt WooCommerce, bật permalink đẹp, tạo trang shop/cart/checkout, tạo 10 sản phẩm mẫu, bật thanh toán COD, kích hoạt plugin. Tài khoản admin test ghi trong `docker/.env.example`.
 
@@ -328,8 +326,8 @@ Máy dev không có PHP/Composer, nên mọi thứ chạy trong container.
 - Date ranges và chia ngày theo múi giờ.
 - API auth: định dạng key, hash, so sánh, scope.
 
-### Jest (giao diện)
-- Định dạng số/tiền/phần trăm, mã hóa và giải mã bộ lọc + khoảng ngày trên URL, logic ẩn/hiện + sắp xếp thẻ, validate form Settings.
+### Kiểm thử tích hợp cho admin (tests/integration/)
+- Phân tích tham số request (khoảng ngày, bộ lọc, chỉ số), quyền truy cập, định dạng dữ liệu trả về cho giao diện PHP.
 
 ### Tích hợp trên Docker (checklist thủ công + script curl)
 1. Tải 1 trang → 1 visitor, 1 session, 1 pageview; F5 liên tục trong 10 giây → vẫn 1 pageview.
