@@ -966,7 +966,7 @@
   font-size: 12px;
 }
 
-.dn-burst-wrap .dn-burst-chart-total span {
+.dn-burst-wrap .dn-burst-chart-total > span {
   display: block;
   color: var(--dn-burst-muted);
   font-size: 11px;
@@ -980,6 +980,7 @@
   margin-top: 3px;
   color: var(--dn-burst-text);
   font-size: 18px;
+  white-space: nowrap;
 }
 
 .dn-burst-wrap .dn-burst-chart-body {
