@@ -1619,8 +1619,8 @@
   border-radius: 4px;
 }
 
-.dn-burst-drawer-stat span,
-.dn-burst-drawer-stat em {
+.dn-burst-drawer-stat > span,
+.dn-burst-drawer-stat > em {
   display: block;
   font-size: 12px;
   color: #646970;
