@@ -87,16 +87,29 @@ function dn_bfs_wc_session_hit() {
 	$settings = dn_bfs_get_tracking_settings();
 	$location = dn_bfs_wc_request_location();
 	$timeout  = (int) $settings['session_timeout'] * MINUTE_IN_SECONDS;
+	$params   = array();
+	parse_str( $location['query'], $params );
+	$click    = dn_bfs_paid_click_value( $params );
 	$is_new   = '' === dn_bfs_wc_read_cookie_id( DN_BFS_COOKIE_SESSION );
 	$vid      = dn_bfs_wc_cookie_id( DN_BFS_COOKIE_VISITOR, (int) $settings['cookie_days'] * DAY_IN_SECONDS );
-	$sid      = dn_bfs_wc_cookie_id( DN_BFS_COOKIE_SESSION, $timeout );
+
+	// Like tracker.js, a paid click id not seen before starts a new session.
+	$last_click = isset( $_COOKIE[ DN_BFS_COOKIE_CLICK ] ) && is_string( $_COOKIE[ DN_BFS_COOKIE_CLICK ] ) ? wp_unslash( $_COOKIE[ DN_BFS_COOKIE_CLICK ] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- only compared.
+
+	if ( ! $is_new && '' !== $click && $click !== $last_click ) {
+		$is_new = true;
+		dn_bfs_wc_set_cookie( DN_BFS_COOKIE_SESSION, bin2hex( random_bytes( 16 ) ), $timeout );
+	}
+
+	$sid = dn_bfs_wc_cookie_id( DN_BFS_COOKIE_SESSION, $timeout );
 
 	if ( $is_new ) {
-		// Same format as tracker.js (raw utm_campaign) so the next pageview keeps this session id.
-		$params = array();
-		parse_str( $location['query'], $params );
-		$campaign = isset( $params['utm_campaign'] ) && is_scalar( $params['utm_campaign'] ) ? (string) $params['utm_campaign'] : '';
-		dn_bfs_wc_set_cookie( DN_BFS_COOKIE_META, wp_date( 'Y-m-d', dn_bfs_now() ) . '~' . $campaign, $timeout );
+		// Same format as tracker.js (raw campaign key) so the next pageview keeps this session id.
+		dn_bfs_wc_set_cookie( DN_BFS_COOKIE_META, wp_date( 'Y-m-d', dn_bfs_now() ) . '~' . dn_bfs_campaign_key( $params ), $timeout );
+
+		if ( '' !== $click ) {
+			dn_bfs_wc_set_cookie( DN_BFS_COOKIE_CLICK, $click, $timeout );
+		}
 	}
 
 	return array(
@@ -161,10 +174,16 @@ add_action( 'woocommerce_add_to_cart', 'dn_bfs_wc_on_add_to_cart', 10, 4 );
  * billing address and device is ''.
  */
 function dn_bfs_wc_order_fallback_session( $order, $visitor_uid ) {
-	$utm = array(
-		'source'     => strtolower( (string) $order->get_meta( '_wc_order_attribution_utm_source' ) ),
-		'medium'     => strtolower( (string) $order->get_meta( '_wc_order_attribution_utm_medium' ) ),
-		'campaign'   => (string) $order->get_meta( '_wc_order_attribution_utm_campaign' ),
+	// WooCommerce stores '(none)' for missing values (e.g. auto-tagged Google Ads clicks).
+	$meta = function ( $key ) use ( $order ) {
+		$value = trim( (string) $order->get_meta( '_wc_order_attribution_utm_' . $key ) );
+
+		return '(none)' === $value ? '' : $value;
+	};
+	$utm  = array(
+		'source'     => strtolower( $meta( 'source' ) ),
+		'medium'     => strtolower( $meta( 'medium' ) ),
+		'campaign'   => $meta( 'campaign' ),
 		'paid_click' => false,
 	);
 

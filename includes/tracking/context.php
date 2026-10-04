@@ -12,6 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'DN_BFS_COOKIE_VISITOR', 'dnbfs_vid' );
 define( 'DN_BFS_COOKIE_SESSION', 'dnbfs_sid' );
 define( 'DN_BFS_COOKIE_META', 'dnbfs_sm' );
+define( 'DN_BFS_COOKIE_CLICK', 'dnbfs_ck' );
 
 function dn_bfs_now() {
 	return (int) apply_filters( 'dn_bfs_now', time() );

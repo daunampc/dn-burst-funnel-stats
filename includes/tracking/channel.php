@@ -31,6 +31,66 @@ function dn_bfs_referrer_host( $referrer ) {
 	return is_string( $host ) ? dn_bfs_normalize_host( $host ) : '';
 }
 
+/**
+ * Query parameters that carry a campaign, in priority order. tracker.js and
+ * the WooCommerce cookie mirror use the same order for the session campaign key.
+ */
+function dn_bfs_campaign_params() {
+	return array( 'utm_campaign', 'utm_id', 'gad_campaignid', 'campaign_id', 'hsa_cam' );
+}
+
+/**
+ * Ad-network click ids that mark a paid click, mapped to the source used when
+ * utm_source is missing (auto-tagged ads carry no utm_* parameters).
+ */
+function dn_bfs_paid_click_params() {
+	return array(
+		'gclid'     => 'google',
+		'gbraid'    => 'google',
+		'wbraid'    => 'google',
+		'msclkid'   => 'bing',
+		'ttclid'    => 'tiktok',
+		'twclid'    => 'twitter',
+		'li_fat_id' => 'linkedin',
+	);
+}
+
+function dn_bfs_query_param( $params, $key ) {
+	return isset( $params[ $key ] ) && is_scalar( $params[ $key ] ) ? (string) $params[ $key ] : '';
+}
+
+/**
+ * Raw (unsanitized) campaign key of a parsed query: the first non-empty
+ * campaign parameter. Must match campaignKey() in tracker.js.
+ */
+function dn_bfs_campaign_key( $params ) {
+	foreach ( dn_bfs_campaign_params() as $key ) {
+		$value = dn_bfs_query_param( $params, $key );
+
+		if ( '' !== $value ) {
+			return $value;
+		}
+	}
+
+	return '';
+}
+
+/**
+ * Raw value of the first paid click id in a parsed query, truncated like
+ * clickId() in tracker.js.
+ */
+function dn_bfs_paid_click_value( $params ) {
+	foreach ( array_keys( dn_bfs_paid_click_params() ) as $key ) {
+		$value = dn_bfs_query_param( $params, $key );
+
+		if ( '' !== $value ) {
+			return substr( $value, 0, 100 );
+		}
+	}
+
+	return '';
+}
+
 function dn_bfs_extract_utm( $query ) {
 	$params = array();
 	parse_str( ltrim( (string) $query, '?' ), $params );
@@ -38,18 +98,36 @@ function dn_bfs_extract_utm( $query ) {
 	$utm = array();
 
 	foreach ( array( 'source', 'medium', 'campaign', 'content', 'term' ) as $key ) {
-		$value = isset( $params[ 'utm_' . $key ] ) && is_scalar( $params[ 'utm_' . $key ] ) ? (string) $params[ 'utm_' . $key ] : '';
+		$value = 'campaign' === $key ? dn_bfs_campaign_key( $params ) : dn_bfs_query_param( $params, 'utm_' . $key );
 		$value = dn_bfs_truncate( sanitize_text_field( $value ), 191 );
 
 		$utm[ $key ] = in_array( $key, array( 'source', 'medium' ), true ) ? strtolower( $value ) : $value;
 	}
 
 	$utm['paid_click'] = false;
+	$click_source      = '';
 
-	foreach ( array( 'gclid', 'gbraid', 'wbraid', 'msclkid', 'ttclid' ) as $click_id ) {
-		if ( ! empty( $params[ $click_id ] ) ) {
+	foreach ( dn_bfs_paid_click_params() as $click_id => $source ) {
+		if ( '' !== dn_bfs_query_param( $params, $click_id ) ) {
 			$utm['paid_click'] = true;
+			$click_source      = $source;
+			break;
 		}
+	}
+
+	if ( '' === $utm['source'] ) {
+		if ( '' !== $click_source ) {
+			$utm['source'] = $click_source;
+		} elseif ( '' !== dn_bfs_query_param( $params, 'gad_source' ) ) {
+			$utm['source'] = 'google';
+		} elseif ( '' !== dn_bfs_query_param( $params, 'fbclid' ) ) {
+			// fbclid is also added to organic Facebook links, so it is not a paid click.
+			$utm['source'] = 'facebook';
+		}
+	}
+
+	if ( '' === $utm['medium'] && $utm['paid_click'] ) {
+		$utm['medium'] = 'cpc';
 	}
 
 	return $utm;

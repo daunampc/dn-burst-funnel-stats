@@ -14,7 +14,13 @@ function dn_bfs_dash_tabs() {
 		'overview'  => array( 'label' => __( 'Overview', 'dn-burst-funnel-stats' ), 'dimensions' => array() ),
 		'pages'     => array( 'label' => __( 'Pages', 'dn-burst-funnel-stats' ), 'dimensions' => array( 'page', 'entry', 'exit' ) ),
 		'sources'   => array( 'label' => __( 'Sources', 'dn-burst-funnel-stats' ), 'dimensions' => array( 'channel', 'referrer', 'source', 'medium' ) ),
-		'ad-urls'   => array( 'label' => __( 'Ad URLs', 'dn-burst-funnel-stats' ), 'dimensions' => array( 'campaign', 'source', 'medium' ) ),
+		'ad-urls'   => array(
+			'label'         => __( 'Ad URLs', 'dn-burst-funnel-stats' ),
+			'dimensions'    => array( 'campaign', 'source', 'medium' ),
+			// Only ad/campaign traffic: rows without a value are left out of this tab.
+			'exclude_empty' => true,
+			'empty'         => __( 'No campaign traffic in this period. Tag ad links with utm_campaign (Google Ads auto-tagging is detected automatically).', 'dn-burst-funnel-stats' ),
+		),
 		'products'  => array( 'label' => __( 'Products', 'dn-burst-funnel-stats' ), 'dimensions' => array( 'product' ) ),
 		'brands'    => array( 'label' => __( 'Brands', 'dn-burst-funnel-stats' ), 'dimensions' => array( 'brand' ) ),
 		'countries' => array( 'label' => __( 'Countries', 'dn-burst-funnel-stats' ), 'dimensions' => array( 'country', 'city' ) ),
@@ -623,16 +629,58 @@ function dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $limit
 	);
 }
 
+/**
+ * Breakdown rows for a dashboard table. With $exclude_empty the row without a
+ * dimension value is dropped before paginating, so rows, total and pages only
+ * count rows that have a value. The report API itself is unchanged.
+ */
+function dn_bfs_dash_breakdown_rows( $range, $dimension, $filters, $orderby, $order, $limit, $offset, $exclude_empty = false ) {
+	if ( ! $exclude_empty ) {
+		return dn_bfs_report_breakdown( $range, $dimension, $filters, $orderby, $order, $limit, $offset );
+	}
+
+	$page_size   = 500;
+	$rows        = array();
+	$estimated   = false;
+	$page_offset = 0;
+
+	do {
+		$result = dn_bfs_report_breakdown( $range, $dimension, $filters, $orderby, $order, $page_size, $page_offset );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		foreach ( $result['rows'] as $row ) {
+			if ( '' !== trim( (string) $row['dim_value'] ) ) {
+				$rows[] = $row;
+			}
+		}
+
+		$estimated    = $result['estimated'];
+		$page_offset += $page_size;
+	} while ( $page_offset < (int) $result['total'] );
+
+	return array(
+		'rows'      => array_slice( $rows, max( 0, (int) $offset ), max( 1, (int) $limit ) ),
+		'total'     => count( $rows ),
+		'estimated' => $estimated,
+	);
+}
+
 function dn_bfs_dash_table_html( $tab, $dimension, $range, $filters, $args = array() ) {
+	$tabs     = dn_bfs_dash_tabs();
+	$tab_def  = isset( $tabs[ $tab ] ) ? $tabs[ $tab ] : array();
 	$columns  = dn_bfs_dash_columns( $dimension );
 	$orderby  = isset( $args['orderby'] ) && in_array( $args['orderby'], $columns, true ) ? $args['orderby'] : $columns[0];
 	$order    = isset( $args['order'] ) && 'asc' === $args['order'] ? 'asc' : 'desc';
 	$page     = max( 1, isset( $args['page'] ) ? (int) $args['page'] : 1 );
 	$per_page = 25;
 	$offset   = ( $page - 1 ) * $per_page;
+	$empty    = ! empty( $tab_def['empty'] ) ? $tab_def['empty'] : __( 'No data is available for this period.', 'dn-burst-funnel-stats' );
 	$result   = 'brand' === $dimension
 		? dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $per_page, $offset )
-		: dn_bfs_report_breakdown( $range, $dimension, $filters, $orderby, $order, $per_page, $offset );
+		: dn_bfs_dash_breakdown_rows( $range, $dimension, $filters, $orderby, $order, $per_page, $offset, ! empty( $tab_def['exclude_empty'] ) );
 
 	if ( is_wp_error( $result ) ) {
 		return dn_bfs_dash_notice( $result->get_error_message() );
@@ -665,7 +713,7 @@ function dn_bfs_dash_table_html( $tab, $dimension, $range, $filters, $args = arr
 			</thead>
 			<tbody>
 				<?php if ( empty( $result['rows'] ) ) : ?>
-					<tr><td colspan="<?php echo esc_attr( count( $columns ) + 1 ); ?>"><?php esc_html_e( 'No data is available for this period.', 'dn-burst-funnel-stats' ); ?></td></tr>
+					<tr class="dn-burst-empty-row"><td colspan="<?php echo esc_attr( count( $columns ) + 1 ); ?>"><?php echo esc_html( $empty ); ?></td></tr>
 				<?php else : ?>
 					<?php foreach ( $result['rows'] as $row ) : ?>
 						<?php

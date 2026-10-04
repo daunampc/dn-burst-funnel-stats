@@ -11,6 +11,10 @@
 	var VISITOR = 'dnbfs_vid';
 	var SESSION = 'dnbfs_sid';
 	var META = 'dnbfs_sm';
+	var CLICK = 'dnbfs_ck';
+	// Same order as dn_bfs_campaign_params() / dn_bfs_paid_click_params() on the server.
+	var CAMPAIGN_PARAMS = ['utm_campaign', 'utm_id', 'gad_campaignid', 'campaign_id', 'hsa_cam'];
+	var CLICK_PARAMS = ['gclid', 'gbraid', 'wbraid', 'msclkid', 'ttclid', 'twclid', 'li_fat_id'];
 	var HEX = /^[a-f0-9]{32}$/;
 
 	function decode(value) {
@@ -58,6 +62,18 @@
 		return match ? decode(match[1].replace(/\+/g, ' ')) : '';
 	}
 
+	function firstParam(names) {
+		for (var i = 0; i < names.length; i++) {
+			var value = param(names[i]);
+
+			if (value) {
+				return value;
+			}
+		}
+
+		return '';
+	}
+
 	var vid = getCookie(VISITOR);
 	if (!HEX.test(vid)) {
 		vid = uid();
@@ -71,16 +87,27 @@
 	// Split on the first '~' only: campaigns may contain '~'.
 	var meta = cut === -1 ? [rawMeta, ''] : [rawMeta.slice(0, cut), rawMeta.slice(cut + 1)];
 	var day = siteDay();
-	var campaign = param('utm_campaign');
+	var campaign = firstParam(CAMPAIGN_PARAMS);
+	// A new ad click (new click id) starts a new session even without a campaign.
+	var click = firstParam(CLICK_PARAMS).slice(0, 100);
+	var lastClick = getCookie(CLICK);
 
-	if (!HEX.test(sid) || meta[0] !== day || (campaign && campaign !== (meta[1] || ''))) {
+	if (!HEX.test(sid) || meta[0] !== day || (campaign && campaign !== (meta[1] || '')) || (click && click !== lastClick)) {
 		sid = uid();
 		meta = [day, campaign || (meta[0] === day ? meta[1] || '' : '')];
+	}
+
+	if (click) {
+		lastClick = click;
 	}
 
 	function touch() {
 		setCookie(SESSION, sid, timeout);
 		setCookie(META, meta[0] + '~' + (meta[1] || ''), timeout);
+
+		if (lastClick) {
+			setCookie(CLICK, lastClick, timeout);
+		}
 	}
 
 	touch();
