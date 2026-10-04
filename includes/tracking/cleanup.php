@@ -61,8 +61,7 @@ function dn_bfs_cleanup_run( $now = null ) {
 
 	// Never drop raw rows for a day that has not been aggregated yet.
 	if ( '' !== $last ) {
-		$cutoff = min( dn_bfs_raw_cutoff_date( $now ), dn_bfs_date_shift( $last, 1 ) );
-		list( $before ) = dn_bfs_day_bounds( $cutoff );
+		list( $before ) = dn_bfs_day_bounds( dn_bfs_raw_available_from( $now ) );
 
 		$result['pageviews'] = dn_bfs_cleanup_delete( $wpdb->prepare( 'DELETE FROM ' . dn_bfs_table( 'pageviews' ) . ' WHERE time < %d LIMIT 5000', $before ) );
 		$result['events']    = dn_bfs_cleanup_delete( $wpdb->prepare( 'DELETE FROM ' . dn_bfs_table( 'events' ) . " WHERE time < %d AND type <> 'order' LIMIT 5000", $before ) );

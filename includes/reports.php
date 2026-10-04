@@ -49,8 +49,8 @@ function dn_bfs_report_error_out_of_retention() {
  * Splits a period into the part covered by dnbfs_daily (dates up to the
  * aggregation watermark) and the live part read from raw data (from
  * `live_start_date` on). Unaggregated days whose raw data was already purged
- * cannot be recovered: the live part then starts at the raw cutoff and
- * `incomplete` is true.
+ * cannot be recovered: the live part then starts at the first date that still
+ * has raw data (dn_bfs_raw_available_from()) and `incomplete` is true.
  */
 function dn_bfs_report_period( $start_ts, $end_ts, $now ) {
 	$start_date = wp_date( 'Y-m-d', (int) $start_ts );
@@ -67,7 +67,7 @@ function dn_bfs_report_period( $start_ts, $end_ts, $now ) {
 	$has_daily  = '' !== $last && $start_date <= $daily_end;
 	$live_start = $has_daily ? max( $start_date, dn_bfs_date_shift( $daily_end, 1 ) ) : $start_date;
 	$live_last  = min( $end_date, $today );
-	$cutoff     = dn_bfs_raw_cutoff_date( $now );
+	$cutoff     = dn_bfs_raw_available_from( $now );
 	$incomplete = false;
 
 	if ( $live_start <= $live_last && $live_start < $cutoff ) {
@@ -180,7 +180,7 @@ function dn_bfs_daily_breakdown( $start_date, $end_date, $dimension ) {
 function dn_bfs_report_period_metrics( $start_ts, $end_ts, $filters, $now ) {
 	$filters      = dn_bfs_sanitize_filters( $filters );
 	$period       = dn_bfs_report_period( $start_ts, $end_ts, $now );
-	$in_retention = $period['start_date'] >= dn_bfs_raw_cutoff_date( $now );
+	$in_retention = $period['start_date'] >= dn_bfs_raw_available_from( $now );
 	$metrics      = dn_bfs_empty_metrics();
 
 	if ( $period['start_date'] > $period['today'] ) {
@@ -264,7 +264,7 @@ function dn_bfs_report_timeseries( $range, $metrics, $filters = array(), $now = 
 	$by_day  = array();
 
 	if ( count( $filters ) > 1 ) {
-		if ( $period['start_date'] < dn_bfs_raw_cutoff_date( $now ) ) {
+		if ( $period['start_date'] < dn_bfs_raw_available_from( $now ) ) {
 			return dn_bfs_report_error_out_of_retention();
 		}
 
@@ -351,7 +351,7 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 	$estimated = false;
 
 	if ( ! empty( $filters ) ) {
-		if ( $period['start_date'] < dn_bfs_raw_cutoff_date( $now ) ) {
+		if ( $period['start_date'] < dn_bfs_raw_available_from( $now ) ) {
 			return dn_bfs_report_error_out_of_retention();
 		}
 

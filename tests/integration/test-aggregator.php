@@ -294,3 +294,38 @@ dn_bfs_it(
 		dn_bfs_assert_true( (bool) wp_next_scheduled( 'dnbfs_cleanup' ), 'cleanup scheduled' );
 	}
 );
+
+dn_bfs_it(
+	'a lagging watermark keeps unpurged days beyond retention fully rebuildable and reportable',
+	function () {
+		dn_bfs_it_reset_aggregator_state();
+		dn_bfs_it_settings( array( 'raw_retention_days' => 7 ) );
+
+		$today  = wp_date( 'Y-m-d', time() );
+		$day_ts = dn_bfs_it_day_noon( 15 );
+		$date   = wp_date( 'Y-m-d', $day_ts );
+		update_option( 'dnbfs_last_aggregated_date', dn_bfs_date_shift( $today, -20 ), false );
+
+		$session = dn_bfs_it_seed_session( array( 'started_at' => $day_ts ) );
+		dn_bfs_it_seed_pageview( $session, '/', $day_ts );
+
+		dn_bfs_assert_same( dn_bfs_date_shift( $today, -19 ), dn_bfs_raw_available_from( time() ) );
+
+		list( $start, $end ) = dn_bfs_day_bounds( $date );
+		$before              = dn_bfs_report_period( $start, $end - 1, time() );
+		dn_bfs_assert_same( false, $before['incomplete'], 'incomplete before aggregation' );
+		dn_bfs_assert_same( $date, $before['live_start_date'] );
+
+		$result = dn_bfs_aggregate_run( time() );
+		dn_bfs_assert_true( $result['ok'], 'ok' );
+
+		$row = dn_bfs_it_daily( $date, 'total' );
+		dn_bfs_assert_true( is_array( $row ), 'total row written' );
+		dn_bfs_assert_same( '1', $row['sessions'] );
+		dn_bfs_assert_same( '1', $row['pageviews'] );
+
+		$after = dn_bfs_report_period( $start, $end - 1, time() );
+		dn_bfs_assert_same( false, $after['incomplete'], 'incomplete after aggregation' );
+		dn_bfs_assert_same( 1, dn_bfs_report_summary( array( 'current_start' => $start, 'current_end' => $end - 1, 'compare' => 'none' ) )['current']['sessions'] );
+	}
+);

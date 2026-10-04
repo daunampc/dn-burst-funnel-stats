@@ -21,6 +21,18 @@ function dn_bfs_raw_cutoff_date( $now ) {
 	return dn_bfs_date_shift( wp_date( 'Y-m-d', (int) $now ), -1 * (int) $settings['raw_retention_days'] );
 }
 
+/**
+ * First date that still has raw tracking data. Cleanup never purges days after
+ * the aggregation watermark, so a lagging watermark extends raw availability
+ * past the retention cutoff.
+ */
+function dn_bfs_raw_available_from( $now ) {
+	$cutoff = dn_bfs_raw_cutoff_date( $now );
+	$last   = (string) get_option( 'dnbfs_last_aggregated_date', '' );
+
+	return '' === $last ? $cutoff : min( $cutoff, dn_bfs_date_shift( $last, 1 ) );
+}
+
 function dn_bfs_daily_write_rows( $date, $dimension, $rows, $columns = array() ) {
 	global $wpdb;
 
@@ -61,7 +73,11 @@ function dn_bfs_daily_write_rows( $date, $dimension, $rows, $columns = array() )
 	}
 }
 
-function dn_bfs_aggregate_day( $date, $now ) {
+/**
+ * @param string|null $raw_from First date with raw data; pass the value computed
+ *                              before a run moves the watermark.
+ */
+function dn_bfs_aggregate_day( $date, $now, $raw_from = null ) {
 	global $wpdb;
 
 	do_action( 'dn_bfs_before_aggregate_day', $date );
@@ -69,7 +85,9 @@ function dn_bfs_aggregate_day( $date, $now ) {
 	list( $start, $end ) = dn_bfs_day_bounds( $date );
 	$table               = dn_bfs_table( 'daily' );
 
-	if ( $date >= dn_bfs_raw_cutoff_date( $now ) ) {
+	$raw_from = null === $raw_from ? dn_bfs_raw_available_from( $now ) : (string) $raw_from;
+
+	if ( $date >= $raw_from ) {
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE date = %s AND dimension <> 'blocked'", $date ) );
 
 		foreach ( dn_bfs_aggregate_dimensions() as $dimension ) {
@@ -281,23 +299,26 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 	$processed = array();
 	$stop      = false;
 
-	$can_start = function () use ( &$processed, &$stop, $started, $budget ) {
-		return ! $stop && ( empty( $processed ) || microtime( true ) - $started <= $budget );
-	};
-
-	$run_day = function ( $date ) use ( &$processed, &$stop, &$lock, $now ) {
-		dn_bfs_raw_get_order( 0, true );
-		dn_bfs_aggregate_day( $date, $now );
-		$processed[] = $date;
-		$lock        = dn_bfs_aggregate_lock_refresh( $lock, dn_bfs_now() );
-		$stop        = false === $lock;
-	};
-
 	if ( '' === $last ) {
 		$first = dn_bfs_first_tracked_date();
 		$last  = '' === $first || $first > $yesterday ? $yesterday : dn_bfs_date_shift( $first, -1 );
 		update_option( 'dnbfs_last_aggregated_date', $last, false );
 	}
+
+	// Fixed for the whole run: advancing the watermark must not shrink it mid-run.
+	$raw_from = dn_bfs_raw_available_from( $now );
+
+	$can_start = function () use ( &$processed, &$stop, $started, $budget ) {
+		return ! $stop && ( empty( $processed ) || microtime( true ) - $started <= $budget );
+	};
+
+	$run_day = function ( $date ) use ( &$processed, &$stop, &$lock, $now, $raw_from ) {
+		dn_bfs_raw_get_order( 0, true );
+		dn_bfs_aggregate_day( $date, $now, $raw_from );
+		$processed[] = $date;
+		$lock        = dn_bfs_aggregate_lock_refresh( $lock, dn_bfs_now() );
+		$stop        = false === $lock;
+	};
 
 	for ( $cursor = dn_bfs_date_shift( $last, 1 ); $cursor <= $yesterday && count( $processed ) < $max_days && $can_start(); $cursor = dn_bfs_date_shift( $cursor, 1 ) ) {
 		$run_day( $cursor );
