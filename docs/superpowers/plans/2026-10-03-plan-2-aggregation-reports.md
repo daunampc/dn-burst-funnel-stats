@@ -18,7 +18,7 @@
 - Thời gian lưu dạng epoch UTC; ngày `Y-m-d` luôn theo `wp_timezone()` (`wp_date()`); khoảng thời gian dạng `[start, end)` (end loại trừ).
 - `dnbfs_daily` giữ mãi mãi; dữ liệu thô giữ `raw_retention_days` ngày (mặc định 90); ngày `D` còn dữ liệu thô khi `D >= dn_bfs_raw_cutoff_date( $now )`.
 - Dimension `blocked` trong `dnbfs_daily` là bộ đếm sống — aggregator **không bao giờ** xóa/ghi đè dòng `blocked`.
-- Đơn hàng: chỉ đếm từ sự kiện `order` đã ghi (mỗi `order_id` một lần), theo **trạng thái hiện tại** của đơn. Sales = mọi trạng thái trừ `wc-cancelled`, `wc-failed`, `wc-checkout-draft`; revenue = total − refunded; Paid = `wc-processing` + `wc-completed`; Balance = `wc-pending` + `wc-on-hold` (đều chỉnh được ở settings WooCommerce). Đơn của phiên spam vẫn được đếm (là tiền thật).
+- Đơn hàng: chỉ đếm từ sự kiện `order` đã ghi (mỗi `order_id` một lần), theo **trạng thái hiện tại** của đơn. Mọi chỉ số tiền/số lượng trừ hoàn tiền: Sales = mọi trạng thái trừ `wc-cancelled`, `wc-failed`, `wc-checkout-draft`, `wc-refunded`; revenue = max(0, total − refunded); items = Σ max(0, qty − qty đã hoàn); tips gộp (không trừ hoàn); Paid = `wc-processing` + `wc-completed`, tính max(0, total − refunded); Balance = tổng `wc-pending` + `wc-on-hold` (đều chỉnh được ở settings WooCommerce). Đơn của phiên spam vẫn được đếm (là tiền thật).
 - Đơn fallback có `session_id = 0`, `visitor_uid = ''`: luôn LEFT JOIN sessions, không bao giờ đếm `''` là một khách.
 - Session có `pageviews = 0` (tạo từ server trước khi tracker chạy) không tính vào sessions/visitors/bounces.
 - Checkouts = `COUNT(DISTINCT session_id)` của sự kiện `checkout_start`.

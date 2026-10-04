@@ -196,8 +196,10 @@ API PHP duy nhất cho dashboard và REST:
 Nguồn: `dnbfs_daily` cho ngày đã qua; bảng thô cho hôm nay (cache 60 giây); realtime không cache. Visitors cho khoảng nhiều ngày: nếu toàn bộ khoảng còn trong thời hạn dữ liệu thô → `COUNT(DISTINCT visitor_uid)` chính xác; nếu không → cộng theo ngày và trả cờ `estimated = true`.
 
 Định nghĩa chỉ số WooCommerce (sửa lỗi bản cũ; tập trạng thái là giá trị mặc định, chỉnh được ở Settings → WooCommerce):
-- Sales = tổng đơn được tính (loại cancelled/failed/checkout-draft) trừ hoàn tiền.
-- Paid = đơn `processing` + `completed`. Balance = đơn `pending` + `on-hold` (không cộng vào Paid).
+- Mọi số tiền/số lượng đều **trừ hoàn tiền** (net of refunds).
+- Orders/Sales = đơn được tính (loại cancelled/failed/checkout-draft/refunded — đơn hoàn tiền toàn bộ không tính là đơn); revenue = max(0, total − refunded).
+- Items = tổng theo dòng sản phẩm max(0, qty − số lượng đã hoàn); tips = tổng phí tip (gộp, không trừ hoàn tiền). Theo sản phẩm: doanh thu dòng sau giảm giá trừ tiền hoàn của dòng, số lượng trừ số lượng đã hoàn.
+- Paid = đơn `processing` + `completed`, tính max(0, total − refunded). Balance = tổng đơn `pending` + `on-hold` (không cộng vào Paid).
 - Conversion rate = Orders / Visitors.
 
 ## 8. Giao diện admin (React)

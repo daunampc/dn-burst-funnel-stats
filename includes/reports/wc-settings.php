@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 function dn_bfs_wc_report_defaults() {
 	return array(
-		'sales_excluded_statuses' => array( 'wc-cancelled', 'wc-failed', 'wc-checkout-draft' ),
+		'sales_excluded_statuses' => array( 'wc-cancelled', 'wc-failed', 'wc-checkout-draft', 'wc-refunded' ),
 		'paid_statuses'           => array( 'wc-processing', 'wc-completed' ),
 		'balance_statuses'        => array( 'wc-pending', 'wc-on-hold' ),
 		'tip_keywords'            => array( 'tip', 'tips', 'gratuity' ),

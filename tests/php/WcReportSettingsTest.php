@@ -10,7 +10,7 @@ class WcReportSettingsTest extends TestCase {
 	public function test_defaults() {
 		$settings = dn_bfs_get_wc_report_settings();
 
-		$this->assertSame( array( 'wc-cancelled', 'wc-failed', 'wc-checkout-draft' ), $settings['sales_excluded_statuses'] );
+		$this->assertSame( array( 'wc-cancelled', 'wc-failed', 'wc-checkout-draft', 'wc-refunded' ), $settings['sales_excluded_statuses'] );
 		$this->assertSame( array( 'wc-processing', 'wc-completed' ), $settings['paid_statuses'] );
 		$this->assertSame( array( 'wc-pending', 'wc-on-hold' ), $settings['balance_statuses'] );
 		$this->assertSame( array( 'tip', 'tips', 'gratuity' ), $settings['tip_keywords'] );

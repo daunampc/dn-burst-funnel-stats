@@ -52,7 +52,7 @@ dn_bfs_it(
 		dn_bfs_assert_same( 3, $total['items'] );
 		dn_bfs_assert_same( round( $price * 3 + 3.0 - 5, 4 ), $total['revenue'] );
 		dn_bfs_assert_same( 3.0, $total['tips'] );
-		dn_bfs_assert_same( round( (float) $processing->get_total(), 4 ), $total['paid'] );
+		dn_bfs_assert_same( round( (float) $processing->get_total() - 5, 4 ), $total['paid'] );
 		dn_bfs_assert_same( round( (float) $pending->get_total(), 4 ), $total['balance'] );
 
 		$browsers = dn_bfs_raw_order_rows( $start, $end, 'browser', array() );
@@ -215,5 +215,42 @@ dn_bfs_it(
 				}
 			}
 		}
+	}
+);
+
+dn_bfs_it(
+	'sales are net of refunds: refunded orders drop out, items and paid net out partial refunds',
+	function () {
+		dn_bfs_raw_get_order( 0, true );
+
+		$product = dn_bfs_it_first_product();
+		$price   = (float) wc_get_product( $product )->get_price();
+		$day     = dn_bfs_it_day_noon( 1 );
+		$session = dn_bfs_it_seed_session( array( 'started_at' => $day ) );
+		$partial = dn_bfs_it_order( $product, 3, 'processing' );
+		$full    = dn_bfs_it_order( $product, 2, 'completed' );
+		$item_id = current( $partial->get_items() )->get_id();
+
+		dn_bfs_it_seed_event( $session, 'order', $day, array( 'order_id' => $partial->get_id() ) );
+		dn_bfs_it_seed_event( $session, 'order', $day + 1, array( 'order_id' => $full->get_id() ) );
+		wc_create_refund(
+			array(
+				'order_id'   => $partial->get_id(),
+				'amount'     => $price,
+				'line_items' => array( $item_id => array( 'qty' => 1, 'refund_total' => $price ) ),
+			)
+		);
+		wc_get_order( $full->get_id() )->update_status( 'refunded' );
+		dn_bfs_raw_get_order( 0, true );
+
+		list( $start, $end ) = dn_bfs_it_day_range( 1 );
+		$total = dn_bfs_raw_order_rows( $start, $end, 'total', array() )[''];
+		$net   = round( (float) $partial->get_total() - $price, 4 );
+
+		dn_bfs_assert_same( 1, $total['orders'], 'orders' );
+		dn_bfs_assert_same( 2, $total['items'], 'items' );
+		dn_bfs_assert_same( $net, $total['revenue'], 'revenue' );
+		dn_bfs_assert_same( $net, $total['paid'], 'paid' );
+		dn_bfs_assert_same( 0.0, $total['balance'], 'balance' );
 	}
 );

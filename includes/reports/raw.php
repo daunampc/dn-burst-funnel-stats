@@ -261,6 +261,8 @@ function dn_bfs_order_tip_total( $order, $keywords ) {
 
 /**
  * Per-order sale metrics, computed once per order and shared by every dimension.
+ * Money is net of refunds: revenue and paid are total - refunded, items are
+ * line quantities minus refunded quantities; tips stay gross (fee totals).
  *
  * @return array{is_sale: bool, metrics: array, products: array} `products` maps
  *               product id => metrics for sale orders (empty otherwise).
@@ -269,18 +271,22 @@ function dn_bfs_raw_order_metrics( $order, $settings, $with_products ) {
 	$status      = dn_bfs_order_status_key( $order );
 	$is_sale     = ! in_array( $status, $settings['sales_excluded_statuses'], true );
 	$order_total = (float) $order->get_total();
+	$net_total   = max( 0.0, $order_total - (float) $order->get_total_refunded() );
 	$metrics     = array_fill_keys( dn_bfs_order_columns(), 0 );
 	$products    = array();
 
 	if ( $is_sale ) {
 		$metrics['orders']  = 1;
-		$metrics['revenue'] = max( 0.0, $order_total - (float) $order->get_total_refunded() );
-		$metrics['items']   = (int) $order->get_item_count();
+		$metrics['revenue'] = $net_total;
 		$metrics['tips']    = dn_bfs_order_tip_total( $order, $settings['tip_keywords'] );
+
+		foreach ( $order->get_items() as $item ) {
+			$metrics['items'] += max( 0, (int) $item->get_quantity() - abs( (int) $order->get_qty_refunded_for_item( $item->get_id() ) ) );
+		}
 	}
 
 	if ( in_array( $status, $settings['paid_statuses'], true ) ) {
-		$metrics['paid'] = $order_total;
+		$metrics['paid'] = $net_total;
 	}
 
 	if ( in_array( $status, $settings['balance_statuses'], true ) ) {
