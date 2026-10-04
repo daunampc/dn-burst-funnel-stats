@@ -4,7 +4,7 @@ Tags: woocommerce, analytics, funnel, ecommerce, dashboard
 Requires at least: 6.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 3.1.1
+Stable tag: 3.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -130,6 +130,12 @@ Raw hits are aggregated into daily totals every hour. If WP-Cron is disabled, ma
 The plugin updates from GitHub releases. Create a release with a tag such as `v3.0.1` and attach the plugin zip (any `.zip` asset works; its top-level folder must be `dn-burst-funnel-stats/`).
 
 == Changelog ==
+
+= 3.1.2 =
+* Ad URLs detects Google Ads auto-tagged clicks (gclid / gbraid / wbraid with gad_campaignid), Microsoft Ads (msclkid), TikTok (ttclid), X (twclid) and LinkedIn (li_fat_id) clicks without utm_* tags: the campaign falls back to utm_id, gad_campaignid, campaign_id or hsa_cam, the source is set from the network and the medium to cpc. A new ad click also starts a new session. fbclid alone is treated as Facebook social traffic, not paid.
+* The Ad URLs tab shows only campaign traffic: rows without a campaign, source or medium are left out, with a tagging hint when the period has none. Existing rows are not changed.
+* Compact dashboard layout: one toolbar row with the date range, filters, data status and Customize cards, a slimmer title bar and tighter spacing on every tab and on Settings, so all 12 default cards fit on screen.
+* Redesigned metric cards with per-card accent colors and icons, a larger value, colored trend pills (inverted for bounce rate) and a comparison line.
 
 = 3.1.1 =
 * The dashboard shows the same 12 cards as the classic dashboard by default (Visits, Product visits, Cart visits, Add to cart, Checkout, Orders / AOV, Items / AOI, Conversion rate, Created campaigns, Sales / Tip, Fulfillment orders, Paid / Balance); the other cards stay available under Customize and "Reset to default" restores this set.
