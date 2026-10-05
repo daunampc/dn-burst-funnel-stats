@@ -1286,6 +1286,22 @@
   margin: 0 0 6px;
 }
 
+/* Orders-only results: traffic metrics have no raw data for the range. */
+.dn-burst-traffic-note {
+  margin: 0 0 8px;
+  white-space: normal;
+}
+
+.dn-burst-wrap .dn-burst-card.is-unavailable .dn-burst-main,
+.dn-burst-drawer-stat.is-unavailable > strong,
+.dn-burst-data-table td.is-unavailable {
+  color: var(--dn-burst-muted);
+}
+
+.dn-burst-wrap .dn-burst-card.is-unavailable .dn-burst-main {
+  font-weight: 400;
+}
+
 /* Settings and other plugin pages. */
 .dn-burst-settings.wrap {
   margin: 0;

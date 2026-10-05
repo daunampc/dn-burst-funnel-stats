@@ -147,6 +147,13 @@ function dn_bfs_dash_estimate_note() {
 	return '<p class="dn-burst-estimate-note">' . esc_html__( 'Visitor counts are estimated for this range (summed per day).', 'dn-burst-funnel-stats' ) . '</p>';
 }
 
+/**
+ * Compact note for orders-only results (no raw tracking data for the range).
+ */
+function dn_bfs_dash_traffic_note() {
+	return '<p class="dn-burst-estimate-note dn-burst-traffic-note">' . esc_html( dn_bfs_dashboard_traffic_message() ) . '</p>';
+}
+
 function dn_bfs_dash_request( $params ) {
 	$range = dn_bfs_parse_range( $params );
 
@@ -355,7 +362,7 @@ function dn_bfs_dash_render_chart_panel( $title, $type, $data ) {
 		</div>
 		<div class="dn-burst-chart-body">
 			<canvas class="dn-burst-chart" height="250" data-dn-chart="<?php echo esc_attr( $type ); ?>" data-chart="<?php echo esc_attr( wp_json_encode( $data ) ); ?>"></canvas>
-			<p class="dn-burst-chart-empty" <?php echo $has_values ? 'hidden' : ''; ?>><?php esc_html_e( 'No chart data is available for this period yet.', 'dn-burst-funnel-stats' ); ?></p>
+			<p class="dn-burst-chart-empty" <?php echo $has_values ? 'hidden' : ''; ?>><?php echo esc_html( ! empty( $data['empty'] ) ? $data['empty'] : __( 'No chart data is available for this period yet.', 'dn-burst-funnel-stats' ) ); ?></p>
 			<div class="dn-burst-chart-tooltip" role="status" aria-live="polite" hidden></div>
 		</div>
 		<?php dn_bfs_dash_render_chart_legend( $type, $data ); ?>
@@ -398,7 +405,7 @@ function dn_bfs_dash_render_card( $key, $card, $compare_label, $hidden ) {
 		'down' => '&#9660;',
 	);
 	?>
-	<div class="dn-burst-card<?php echo $hidden ? ' is-hidden' : ''; ?>" data-dn-card="<?php echo esc_attr( $key ); ?>" style="<?php echo esc_attr( $style ); ?>" title="<?php echo esc_attr( $card['help'] ); ?>">
+	<div class="dn-burst-card<?php echo ! empty( $card['unavailable'] ) ? ' is-unavailable' : ''; ?><?php echo $hidden ? ' is-hidden' : ''; ?>" data-dn-card="<?php echo esc_attr( $key ); ?>" style="<?php echo esc_attr( $style ); ?>" title="<?php echo esc_attr( $card['help'] ); ?>">
 		<label class="dn-burst-card-toggle">
 			<input type="checkbox" data-dn-card-visible <?php checked( ! $hidden ); ?> />
 			<span class="screen-reader-text"><?php esc_html_e( 'Show this card', 'dn-burst-funnel-stats' ); ?></span>
@@ -416,12 +423,14 @@ function dn_bfs_dash_render_card( $key, $card, $compare_label, $hidden ) {
 		</div>
 		<?php if ( '' !== $compare_label ) : ?>
 			<div class="dn-burst-card-foot">
-				<span class="dn-burst-change <?php echo esc_attr( dn_bfs_dash_trend_class( $card ) ); ?>">
-					<?php if ( isset( $arrows[ $trend ] ) ) : ?>
-						<span class="dn-burst-change-arrow" aria-hidden="true"><?php echo $arrows[ $trend ]; // phpcs:ignore WordPress.Security.EscapeOutput -- fixed entity. ?></span>
-					<?php endif; ?>
-					<?php echo esc_html( '' !== $card['change'] ? ltrim( $card['change'], '+-' ) : '0%' ); ?>
-				</span>
+				<?php if ( empty( $card['compare_unavailable'] ) ) : ?>
+					<span class="dn-burst-change <?php echo esc_attr( dn_bfs_dash_trend_class( $card ) ); ?>">
+						<?php if ( isset( $arrows[ $trend ] ) ) : ?>
+							<span class="dn-burst-change-arrow" aria-hidden="true"><?php echo $arrows[ $trend ]; // phpcs:ignore WordPress.Security.EscapeOutput -- fixed entity. ?></span>
+						<?php endif; ?>
+						<?php echo esc_html( '' !== $card['change'] ? ltrim( $card['change'], '+-' ) : '0%' ); ?>
+					</span>
+				<?php endif; ?>
 				<?php /* translators: 1: comparison label such as "vs. Previous year", 2: previous value. */ ?>
 				<span class="dn-burst-compare"><?php echo dn_bfs_dash_kses_money( sprintf( __( '%1$s: %2$s', 'dn-burst-funnel-stats' ), esc_html( $compare_label ), '' !== $card['compare'] ? $card['compare'] : '&ndash;' ) ); ?></span>
 			</div>
@@ -575,6 +584,10 @@ function dn_bfs_dash_overview_html( $range, $filters ) {
 	$charts        = dn_bfs_dashboard_charts( $range, $filters );
 
 	ob_start();
+
+	if ( empty( $summary['traffic_available'] ) ) {
+		echo wp_kses_post( dn_bfs_dash_traffic_note() );
+	}
 	?>
 	<div class="dn-burst-grid" data-dn-cards>
 		<?php
@@ -613,6 +626,7 @@ function dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $limit
 	$page_size = max( 1, min( 500, (int) apply_filters( 'dn_bfs_brand_page_size', 500 ) ) );
 	$product_rows = array();
 	$estimated    = false;
+	$traffic      = true;
 	$page_offset  = 0;
 
 	do {
@@ -624,6 +638,7 @@ function dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $limit
 
 		$product_rows = array_merge( $product_rows, $products['rows'] );
 		$estimated    = $products['estimated'];
+		$traffic      = $products['traffic_available'];
 		$page_offset += $page_size;
 	} while ( $page_offset < (int) $products['total'] );
 
@@ -665,12 +680,13 @@ function dn_bfs_dash_brand_breakdown( $range, $filters, $orderby, $order, $limit
 		);
 	}
 
-	$rows = dn_bfs_sort_report_rows( $rows, '' !== $orderby ? $orderby : 'revenue', $order );
+	$rows = dn_bfs_sort_report_rows( $rows, dn_bfs_report_breakdown_orderby( '' !== $orderby ? $orderby : 'revenue', 'product', $traffic ), $order );
 
 	return array(
-		'rows'      => array_slice( $rows, $offset, $limit ),
-		'total'     => count( $rows ),
-		'estimated' => $estimated,
+		'rows'              => array_slice( $rows, $offset, $limit ),
+		'total'             => count( $rows ),
+		'estimated'         => $estimated,
+		'traffic_available' => $traffic,
 	);
 }
 
@@ -687,6 +703,7 @@ function dn_bfs_dash_breakdown_rows( $range, $dimension, $filters, $orderby, $or
 	$page_size   = 500;
 	$rows        = array();
 	$estimated   = false;
+	$traffic     = true;
 	$page_offset = 0;
 
 	do {
@@ -703,13 +720,15 @@ function dn_bfs_dash_breakdown_rows( $range, $dimension, $filters, $orderby, $or
 		}
 
 		$estimated    = $result['estimated'];
+		$traffic      = $result['traffic_available'];
 		$page_offset += $page_size;
 	} while ( $page_offset < (int) $result['total'] );
 
 	return array(
-		'rows'      => array_slice( $rows, max( 0, (int) $offset ), max( 1, (int) $limit ) ),
-		'total'     => count( $rows ),
-		'estimated' => $estimated,
+		'rows'              => array_slice( $rows, max( 0, (int) $offset ), max( 1, (int) $limit ) ),
+		'total'             => count( $rows ),
+		'estimated'         => $estimated,
+		'traffic_available' => $traffic,
 	);
 }
 
@@ -731,6 +750,14 @@ function dn_bfs_dash_table_html( $tab, $dimension, $range, $filters, $args = arr
 		return dn_bfs_dash_notice( $result->get_error_message() );
 	}
 
+	$traffic = ! empty( $result['traffic_available'] );
+	$muted   = $traffic ? array() : dn_bfs_traffic_metric_names();
+
+	if ( ! $traffic ) {
+		// Same fallback as the report: traffic columns are all 0, rows are sorted by orders.
+		$orderby = dn_bfs_report_breakdown_orderby( $orderby, $dimension, false );
+	}
+
 	$pages      = max( 1, (int) ceil( $result['total'] / $per_page ) );
 	$drillable  = in_array( $dimension, dn_bfs_filter_dimensions(), true );
 	$labels     = dn_bfs_dash_metric_labels();
@@ -740,6 +767,10 @@ function dn_bfs_dash_table_html( $tab, $dimension, $range, $filters, $args = arr
 	?>
 	<div class="dn-burst-table-wrap" data-dn-table data-tab="<?php echo esc_attr( $tab ); ?>" data-dimension="<?php echo esc_attr( $dimension ); ?>" data-orderby="<?php echo esc_attr( $orderby ); ?>" data-order="<?php echo esc_attr( $order ); ?>" data-page="<?php echo esc_attr( $page ); ?>">
 		<?php
+		if ( ! $traffic ) {
+			echo wp_kses_post( dn_bfs_dash_traffic_note() );
+		}
+
 		if ( ! empty( $result['estimated'] ) ) {
 			echo wp_kses_post( dn_bfs_dash_estimate_note() );
 		}
@@ -768,7 +799,11 @@ function dn_bfs_dash_table_html( $tab, $dimension, $range, $filters, $args = arr
 						<tr<?php if ( $can_drill ) : ?> class="is-drillable" data-dn-drill-dimension="<?php echo esc_attr( $dimension ); ?>" data-dn-drill-value="<?php echo esc_attr( $value ); ?>" tabindex="0"<?php endif; ?>>
 							<td><?php echo esc_html( dn_bfs_dash_value_label( $dimension, $row ) ); ?></td>
 							<?php foreach ( $columns as $column ) : ?>
-								<td><?php echo dn_bfs_dash_kses_money( dn_bfs_dash_format_cell( $column, isset( $row[ $column ] ) ? $row[ $column ] : 0 ) ); ?></td>
+								<?php if ( in_array( $column, $muted, true ) ) : ?>
+									<td class="is-unavailable">—</td>
+								<?php else : ?>
+									<td><?php echo dn_bfs_dash_kses_money( dn_bfs_dash_format_cell( $column, isset( $row[ $column ] ) ? $row[ $column ] : 0 ) ); ?></td>
+								<?php endif; ?>
 							<?php endforeach; ?>
 						</tr>
 					<?php endforeach; ?>
@@ -845,6 +880,7 @@ function dn_bfs_dash_drilldown_html( $range, $filters, $dimension, $value ) {
 	$channels = dn_bfs_dash_channel_labels();
 	$display  = 'channel' === $dimension && isset( $channels[ $value ] ) ? $channels[ $value ] : $value;
 	$cur      = $summary['current'];
+	$traffic  = ! empty( $summary['current_traffic_available'] );
 	$stats    = array(
 		'visitors'        => array( __( 'Visitors', 'dn-burst-funnel-stats' ), esc_html( dn_bfs_dash_number( $cur['visitors'] ) ) ),
 		'sessions'        => array( __( 'Sessions', 'dn-burst-funnel-stats' ), esc_html( dn_bfs_dash_number( $cur['sessions'] ) ) ),
@@ -852,26 +888,32 @@ function dn_bfs_dash_drilldown_html( $range, $filters, $dimension, $value ) {
 		'revenue'         => array( __( 'Sales', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['revenue'] ) ),
 		'conversion_rate' => array( __( 'Conversion', 'dn-burst-funnel-stats' ), esc_html( dn_bfs_dash_percent( $cur['conversion_rate'], 2 ) ) ),
 	);
+	$visitors = array(
+		'label'  => __( 'Visitors', 'dn-burst-funnel-stats' ),
+		'values' => $series['series']['visitors'],
+		'color'  => '#2271b1',
+		'format' => 'integer',
+		'axis'   => 'left',
+	);
+	$orders   = array(
+		'label'  => __( 'Orders', 'dn-burst-funnel-stats' ),
+		'values' => $series['series']['orders'],
+		'color'  => '#7f54b3',
+		'format' => 'integer',
+		'axis'   => 'right',
+	);
 	$trend    = array(
 		'labels' => array_map( 'dn_bfs_dash_date_label', $series['labels'] ),
 		'format' => 'integer',
-		'series' => array(
-			array(
-				'label'  => __( 'Visitors', 'dn-burst-funnel-stats' ),
-				'values' => $series['series']['visitors'],
-				'color'  => '#2271b1',
-				'format' => 'integer',
-				'axis'   => 'left',
-			),
-			array(
-				'label'  => __( 'Orders', 'dn-burst-funnel-stats' ),
-				'values' => $series['series']['orders'],
-				'color'  => '#7f54b3',
-				'format' => 'integer',
-				'axis'   => 'right',
-			),
-		),
+		// Without traffic data the visitors line would be a flat 0.
+		'series' => ! empty( $series['traffic_available'] ) ? array( $visitors, $orders ) : array( $orders ),
 	);
+	// Traffic stats lose their change when either period lacks raw data, and show "—" when the current one does.
+	$withheld = empty( $summary['traffic_available'] ) ? array_intersect( array_keys( $stats ), dn_bfs_traffic_metric_names() ) : array();
+
+	foreach ( $traffic ? array() : $withheld as $metric ) {
+		$stats[ $metric ][1] = '—';
+	}
 
 	ob_start();
 	?>
@@ -881,16 +923,20 @@ function dn_bfs_dash_drilldown_html( $range, $filters, $dimension, $value ) {
 	</div>
 	<p class="dn-burst-drawer-range"><?php echo esc_html( $range['current_label'] . ' (' . $range['current_range_label'] . ')' ); ?></p>
 	<?php
+	if ( empty( $summary['traffic_available'] ) ) {
+		echo wp_kses_post( dn_bfs_dash_traffic_note() );
+	}
+
 	if ( $summary['estimated'] ) {
 		echo wp_kses_post( dn_bfs_dash_estimate_note() );
 	}
 	?>
 	<div class="dn-burst-drawer-stats">
 		<?php foreach ( $stats as $metric => $stat ) : ?>
-			<div class="dn-burst-drawer-stat">
+			<div class="dn-burst-drawer-stat<?php echo ! $traffic && in_array( $metric, $withheld, true ) ? ' is-unavailable' : ''; ?>">
 				<span><?php echo esc_html( $stat[0] ); ?></span>
 				<strong><?php echo dn_bfs_dash_kses_money( $stat[1] ); ?></strong>
-				<?php $change = dn_bfs_dash_change( $summary, $metric ); ?>
+				<?php $change = in_array( $metric, $withheld, true ) ? '' : dn_bfs_dash_change( $summary, $metric ); ?>
 				<?php if ( '' !== $change ) : ?>
 					<em class="<?php echo 0 === strpos( $change, '-' ) ? 'is-down' : 'is-up'; ?>"><?php echo esc_html( $change ); ?></em>
 				<?php endif; ?>

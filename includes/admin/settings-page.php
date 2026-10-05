@@ -96,7 +96,7 @@ function dn_bfs_settings_fields() {
 			array( 'key' => 'maxmind_license_key', 'type' => 'password', 'label' => __( 'MaxMind license key', 'dn-burst-funnel-stats' ), 'description' => __( 'Free key from maxmind.com. The GeoLite2 City database is downloaded and refreshed every 30 days.', 'dn-burst-funnel-stats' ) ),
 		),
 		'data'        => array(
-			$number( 'raw_retention_days', __( 'Keep raw tracking data for', 'dn-burst-funnel-stats' ), __( 'days', 'dn-burst-funnel-stats' ), __( 'Daily totals are kept forever. Combined filters only work inside this window.', 'dn-burst-funnel-stats' ) ),
+			$number( 'raw_retention_days', __( 'Keep raw tracking data for', 'dn-burst-funnel-stats' ), __( 'days', 'dn-burst-funnel-stats' ), __( 'Daily totals are kept forever. Beyond this window, combined filters show order and revenue figures only.', 'dn-burst-funnel-stats' ) ),
 		),
 	);
 }

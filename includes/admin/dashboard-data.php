@@ -14,6 +14,29 @@ function dn_bfs_dashboard_card_keys() {
 }
 
 /**
+ * Cards built from traffic metrics: shown as "—" without a trend when the
+ * report has no raw tracking data for the range (orders-only results).
+ */
+function dn_bfs_dashboard_traffic_cards() {
+	return array( 'visitors', 'pageviews', 'sessions', 'new_returning', 'bounce_rate', 'avg_duration', 'pages_per_session', 'product_views', 'atc', 'checkouts', 'conversion_rate' );
+}
+
+/**
+ * Why traffic metrics are missing, with the raw-data retention in days.
+ */
+function dn_bfs_dashboard_traffic_message() {
+	$settings = dn_bfs_get_tracking_settings();
+	$days     = (int) $settings['raw_retention_days'];
+
+	/* translators: %d: number of days raw tracking data is kept. */
+	return sprintf( _n( 'Traffic metrics need raw tracking data, which is kept for %d day. Order and revenue figures cover the whole range.', 'Traffic metrics need raw tracking data, which is kept for %d days. Order and revenue figures cover the whole range.', $days, 'dn-burst-funnel-stats' ), $days );
+}
+
+function dn_bfs_dashboard_traffic_empty_message() {
+	return __( 'Traffic metrics are not available for this range.', 'dn-burst-funnel-stats' );
+}
+
+/**
  * Cards visible by default, in display order (mirrors the classic dashboard).
  */
 function dn_bfs_dashboard_default_cards() {
@@ -140,7 +163,7 @@ function dn_bfs_dashboard_cards( $summary ) {
 		);
 	};
 
-	return array(
+	$cards = array(
 		'visitors'          => $card( 'visitors', 'visitors', __( 'Visitors', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['visitors'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'visitors' ) ) : '', __( 'Unique visitors, identified by a first-party browser cookie.', 'dn-burst-funnel-stats' ) ),
 		'pageviews'         => $card( 'pageviews', 'pageviews', __( 'Pageviews', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['pageviews'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'pageviews' ) ) : '', __( 'Pages viewed. Reloads of the same page within a few seconds count once.', 'dn-burst-funnel-stats' ) ),
 		'sessions'          => $card( 'sessions', 'sessions', __( 'Sessions', 'dn-burst-funnel-stats' ), dn_bfs_dash_number( $cur['sessions'] ), '', $has_prev ? dn_bfs_dash_number( $was( 'sessions' ) ) : '', __( 'Visits. A session ends after 30 minutes without activity or at midnight.', 'dn-burst-funnel-stats' ) ),
@@ -162,9 +185,57 @@ function dn_bfs_dashboard_cards( $summary ) {
 		'sales_tip'         => $card( 'sales_tip', 'revenue', __( 'Sales / tip', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['revenue'] ), sprintf( __( 'Tip: %s', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['tips'] ) ), $has_prev ? dn_bfs_dash_money( $was( 'revenue' ) ) : '', __( 'Sales are net of refunds; tips are gross fee totals.', 'dn-burst-funnel-stats' ) ),
 		'paid_balance'      => $card( 'paid_balance', 'paid', __( 'Paid / balance', 'dn-burst-funnel-stats' ), dn_bfs_dash_money( $cur['paid'] ) . ' / ' . dn_bfs_dash_money( $cur['balance'] ), '', $has_prev ? dn_bfs_dash_money( $was( 'paid' ) ) : '', __( 'By default, paid = processing and completed orders, net of refunds, and balance = pending and on-hold orders.', 'dn-burst-funnel-stats' ) ),
 	);
+
+	return dn_bfs_dashboard_withhold_traffic_cards( $cards, $summary );
 }
 
+/**
+ * Orders-only summaries: traffic cards show "—" (current period without raw
+ * data) or lose their comparison (previous period without raw data). Both
+ * drop the trend pill; order cards keep values and trends.
+ */
+function dn_bfs_dashboard_withhold_traffic_cards( $cards, $summary ) {
+	$current  = ! isset( $summary['current_traffic_available'] ) || false !== $summary['current_traffic_available'];
+	$previous = ! isset( $summary['previous_traffic_available'] ) || false !== $summary['previous_traffic_available'];
+
+	foreach ( $cards as $key => $card ) {
+		$cards[ $key ]['unavailable']         = false;
+		$cards[ $key ]['compare_unavailable'] = false;
+	}
+
+	foreach ( dn_bfs_dashboard_traffic_cards() as $key ) {
+		if ( ! $current ) {
+			$cards[ $key ]['main']        = '—';
+			$cards[ $key ]['secondary']   = '';
+			$cards[ $key ]['unavailable'] = true;
+		}
+
+		if ( ! $current || ! $previous ) {
+			$cards[ $key ]['compare']             = $previous ? $cards[ $key ]['compare'] : '';
+			$cards[ $key ]['change']              = '';
+			$cards[ $key ]['trend']               = '';
+			$cards[ $key ]['compare_unavailable'] = true;
+		}
+	}
+
+	return $cards;
+}
+
+/**
+ * @param array $funnel dn_bfs_report_funnel() result. Without traffic data the
+ *                      chart is empty and says why.
+ */
 function dn_bfs_dashboard_funnel_payload( $funnel ) {
+	if ( isset( $funnel['traffic_available'] ) && ! $funnel['traffic_available'] ) {
+		return array(
+			'format' => 'integer',
+			'labels' => array(),
+			'values' => array(),
+			'empty'  => dn_bfs_dashboard_traffic_empty_message(),
+		);
+	}
+
+	$funnel = isset( $funnel['steps'] ) ? $funnel['steps'] : $funnel;
 	$labels = array(
 		'visitors'      => __( 'Visitors', 'dn-burst-funnel-stats' ),
 		'product_views' => __( 'Product views', 'dn-burst-funnel-stats' ),
@@ -207,6 +278,7 @@ function dn_bfs_dashboard_charts( $range, $filters ) {
 	}
 
 	$labels     = array_map( 'dn_bfs_dash_date_label', $series['labels'] );
+	$traffic    = ! empty( $series['traffic_available'] );
 	$top_labels = array();
 	$top_values = array();
 
@@ -242,7 +314,7 @@ function dn_bfs_dashboard_charts( $range, $filters ) {
 			),
 		),
 		'funnel'     => dn_bfs_dashboard_funnel_payload( $funnel ),
-		'conversion' => array(
+		'conversion' => $traffic ? array(
 			'labels' => $labels,
 			'format' => 'percent',
 			'values' => $series['series']['conversion_rate'],
@@ -255,6 +327,12 @@ function dn_bfs_dashboard_charts( $range, $filters ) {
 					'axis'   => 'left',
 				),
 			),
+		) : array(
+			'labels' => $labels,
+			'format' => 'percent',
+			'values' => array(),
+			'series' => array(),
+			'empty'  => dn_bfs_dashboard_traffic_empty_message(),
 		),
 		'top'        => array(
 			'labels' => $top_labels,
