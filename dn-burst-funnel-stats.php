@@ -32,7 +32,7 @@ define('DN_BURST_FUNNEL_STATS_URL', plugin_dir_url(__FILE__));
 define('DN_BURST_FUNNEL_STATS_GITHUB_REPO', 'daunampc/dn-burst-funnel-stats');
 
 define('DN_BURST_FUNNEL_STATS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '7');
+define('DN_BURST_FUNNEL_STATS_SCHEMA_VERSION', '8');
 
 /**
  * Load translations.
@@ -103,7 +103,7 @@ function dn_burst_funnel_stats_load_tracking()
 {
   require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking.php';
 
-  foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events', 'aggregator', 'cleanup', 'geoip-update') as $module) {
+  foreach (array('ua-parser', 'channel', 'guard', 'geo', 'schema', 'context', 'store', 'collector', 'wc-events', 'order-backfill', 'aggregator', 'cleanup', 'geoip-update') as $module) {
     require_once DN_BURST_FUNNEL_STATS_PATH . 'includes/tracking/' . $module . '.php';
   }
 }
@@ -295,6 +295,11 @@ function dn_burst_funnel_stats_maybe_migrate()
   // Retry on the next load if dbDelta could not create every table.
   if (! dn_bfs_schema_tables_exist()) {
     return;
+  }
+
+  // 3.1.3: import WooCommerce orders the checkout hooks never recorded (older orders, admin/REST/app orders), once.
+  if (version_compare($current_schema, '8', '<') && 'idle' === dn_bfs_backfill_state()['status']) {
+    dn_bfs_backfill_start();
   }
 
   update_option('dn_burst_funnel_stats_schema_version', DN_BURST_FUNNEL_STATS_SCHEMA_VERSION, false);

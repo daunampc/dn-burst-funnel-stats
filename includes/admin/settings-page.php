@@ -206,6 +206,10 @@ function dn_bfs_settings_data_task( $task, $post, $files ) {
 			}
 
 			return dn_bfs_reaggregate_outcome( $result );
+		case 'import_orders':
+			dn_bfs_backfill_start();
+
+			return array( 'tab' => 'data', 'notice' => 'orders_import_started' );
 		case 'purge':
 			$result = dn_bfs_purge_all_data( isset( $post['confirm'] ) ? (string) $post['confirm'] : '' );
 
@@ -236,6 +240,7 @@ function dn_bfs_settings_notice( $code, $args = array() ) {
 		'imported_wc_rules' => array( 'warning', __( 'Settings imported. Days that were already aggregated keep the old WooCommerce revenue rules. To apply the new rules to past days, go to Settings → Data → Re-aggregate.', 'dn-burst-funnel-stats' ) ),
 		'reaggregated'     => array( 'success', __( 'The selected days were re-aggregated.', 'dn-burst-funnel-stats' ) ),
 		'purged'           => array( 'success', __( 'All tracking data was deleted.', 'dn-burst-funnel-stats' ) ),
+		'orders_import_started' => array( 'success', __( 'Importing past WooCommerce orders in the background. Daily totals update within the next hours.', 'dn-burst-funnel-stats' ) ),
 		'imported'         => array( 'success', __( 'Settings imported.', 'dn-burst-funnel-stats' ) ),
 		'geoip_updated'    => array( 'success', __( 'The GeoIP database was updated.', 'dn-burst-funnel-stats' ) ),
 		'confirm_required' => array( 'error', __( 'Type DELETE to confirm.', 'dn-burst-funnel-stats' ) ),
@@ -527,6 +532,34 @@ function dn_bfs_render_settings_geoip_panel() {
 	<?php
 }
 
+function dn_bfs_render_settings_orders_panel() {
+	$stats  = dn_bfs_order_import_stats();
+	$state  = $stats['state'];
+	$format = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+	$labels = array(
+		'idle'    => __( 'Not run yet', 'dn-burst-funnel-stats' ),
+		'running' => __( 'Running in the background', 'dn-burst-funnel-stats' ),
+		'done'    => __( 'Done', 'dn-burst-funnel-stats' ),
+	);
+	$last   = max( (int) $state['last_run'], (int) $state['finished_at'] );
+	?>
+	<div class="dn-burst-panel">
+		<h2><?php esc_html_e( 'WooCommerce orders', 'dn-burst-funnel-stats' ); ?></h2>
+		<p class="description"><?php esc_html_e( 'Orders placed before the plugin was installed, or created outside the checkout (admin, REST API, mobile app, some payment gateways), are imported with their WooCommerce order attribution. New untracked orders are picked up every hour.', 'dn-burst-funnel-stats' ); ?></p>
+		<table class="widefat striped">
+			<tbody>
+				<tr><td><?php esc_html_e( 'Import status', 'dn-burst-funnel-stats' ); ?></td><td><?php echo esc_html( isset( $labels[ $state['status'] ] ) ? $labels[ $state['status'] ] : $state['status'] ); ?></td></tr>
+				<tr><td><?php esc_html_e( 'Orders imported', 'dn-burst-funnel-stats' ); ?></td><td><?php echo esc_html( number_format_i18n( (int) $state['inserted'] ) ); ?></td></tr>
+				<tr><td><?php esc_html_e( 'Last run', 'dn-burst-funnel-stats' ); ?></td><td><?php echo esc_html( $last ? wp_date( $format, $last ) : '—' ); ?></td></tr>
+				<tr><td><?php esc_html_e( 'Orders in WooCommerce', 'dn-burst-funnel-stats' ); ?></td><td><?php echo esc_html( number_format_i18n( $stats['orders_total'] ) ); ?></td></tr>
+				<tr><td><?php esc_html_e( 'Orders recorded in stats', 'dn-burst-funnel-stats' ); ?></td><td><?php echo esc_html( number_format_i18n( $stats['orders_tracked'] ) ); ?></td></tr>
+			</tbody>
+		</table>
+		<?php dn_bfs_render_data_task_form( 'import_orders', __( 'Import past orders now', 'dn-burst-funnel-stats' ) ); ?>
+	</div>
+	<?php
+}
+
 function dn_bfs_render_settings_data_panels() {
 	$stats = dn_bfs_data_stats();
 	?>
@@ -543,6 +576,7 @@ function dn_bfs_render_settings_data_panels() {
 		<?php /* translators: 1: last aggregated date, 2: first date with raw data. */ ?>
 		<p class="description"><?php echo esc_html( sprintf( __( 'Aggregated through %1$s. Raw data is available from %2$s.', 'dn-burst-funnel-stats' ), '' !== $stats['last_aggregated'] ? $stats['last_aggregated'] : '—', $stats['raw_available_from'] ) ); ?></p>
 	</div>
+	<?php dn_bfs_render_settings_orders_panel(); ?>
 	<div class="dn-burst-panel">
 		<h2><?php esc_html_e( 'Re-aggregate', 'dn-burst-funnel-stats' ); ?></h2>
 		<p class="description"><?php esc_html_e( 'Rebuild daily totals for a date range (at most 92 days).', 'dn-burst-funnel-stats' ); ?></p>

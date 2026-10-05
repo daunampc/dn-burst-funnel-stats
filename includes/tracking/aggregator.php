@@ -346,7 +346,9 @@ function dn_bfs_aggregate_lock_release( $value ) {
 /**
  * Rebuilds dirty dates and catches up to the last closable date (yesterday
  * once session_timeout minutes have passed since midnight). Stops starting new days
- * after `$max_days` (per phase) or once the `dn_bfs_aggregate_time_budget`
+ * after `$max_days` full days (per phase; days older than the raw data are cheap
+ * order-only rebuilds and have their own `dn_bfs_aggregate_max_order_days` cap,
+ * default 366, so imported past orders catch up quickly) or once the `dn_bfs_aggregate_time_budget`
  * (seconds, default 25) is spent; the budget is checked before each day except
  * the first, so every run makes progress even with a budget of 0.
  *
@@ -367,12 +369,13 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 		);
 	}
 
-	$budget    = (int) apply_filters( 'dn_bfs_aggregate_time_budget', 25 );
-	$yesterday = dn_bfs_last_closable_date( $now );
-	$last      = (string) get_option( 'dnbfs_last_aggregated_date', '' );
-	$processed = array();
-	$stop      = false;
-	$failed    = null;
+	$budget     = (int) apply_filters( 'dn_bfs_aggregate_time_budget', 25 );
+	$max_orders = (int) apply_filters( 'dn_bfs_aggregate_max_order_days', 366 );
+	$yesterday  = dn_bfs_last_closable_date( $now );
+	$last       = (string) get_option( 'dnbfs_last_aggregated_date', '' );
+	$processed  = array();
+	$stop       = false;
+	$failed     = null;
 
 	if ( '' === $last ) {
 		$first = dn_bfs_first_tracked_date();
@@ -385,6 +388,18 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 
 	$can_start = function () use ( &$processed, &$stop, $started, $budget ) {
 		return ! $stop && ( empty( $processed ) || microtime( true ) - $started <= $budget );
+	};
+
+	// Days run per phase, counted separately for full and order-only rebuilds.
+	$counts     = array();
+	$within_cap = function ( $date ) use ( &$counts, $raw_from, $max_days, $max_orders ) {
+		$mode = $date >= $raw_from ? 'full' : 'orders';
+
+		return ( isset( $counts[ $mode ] ) ? $counts[ $mode ] : 0 ) < ( 'full' === $mode ? $max_days : $max_orders );
+	};
+	$count_day  = function ( $date ) use ( &$counts, $raw_from ) {
+		$mode            = $date >= $raw_from ? 'full' : 'orders';
+		$counts[ $mode ] = ( isset( $counts[ $mode ] ) ? $counts[ $mode ] : 0 ) + 1;
 	};
 
 	$run_day = function ( $date ) use ( &$processed, &$stop, &$lock, &$failed, $now, $raw_from ) {
@@ -410,15 +425,16 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 		return true;
 	};
 
-	for ( $cursor = dn_bfs_date_shift( $last, 1 ); $cursor <= $yesterday && count( $processed ) < $max_days && $can_start(); $cursor = dn_bfs_date_shift( $cursor, 1 ) ) {
+	for ( $cursor = dn_bfs_date_shift( $last, 1 ); $cursor <= $yesterday && $within_cap( $cursor ) && $can_start(); $cursor = dn_bfs_date_shift( $cursor, 1 ) ) {
 		if ( ! $run_day( $cursor ) ) {
 			break;
 		}
 
+		$count_day( $cursor );
 		update_option( 'dnbfs_last_aggregated_date', $cursor, false );
 	}
 
-	$done = 0;
+	$counts = array();
 
 	foreach ( dn_bfs_get_dirty_dates() as $date ) {
 		if ( ! dn_bfs_is_date_string( $date ) ) {
@@ -431,8 +447,12 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 			continue;
 		}
 
-		if ( $done >= $max_days || ! $can_start() ) {
+		if ( ! $can_start() ) {
 			break;
+		}
+
+		if ( ! $within_cap( $date ) ) {
+			continue;
 		}
 
 		delete_option( 'dnbfs_dirty_' . $date );
@@ -443,7 +463,7 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 			break;
 		}
 
-		$done++;
+		$count_day( $date );
 	}
 
 	if ( false !== $lock ) {
@@ -470,6 +490,7 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 }
 
 function dn_bfs_cron_aggregate() {
+	dn_bfs_reconcile_recent_orders();
 	dn_bfs_aggregate_run();
 	dn_bfs_purge_expired_cache_transients();
 }
@@ -483,9 +504,12 @@ function dn_bfs_schedule_crons() {
 	if ( ! wp_next_scheduled( 'dnbfs_cleanup' ) ) {
 		wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'dnbfs_cleanup' );
 	}
+
+	dn_bfs_backfill_maybe_resume();
 }
 
 function dn_bfs_unschedule_crons() {
 	wp_clear_scheduled_hook( 'dnbfs_aggregate' );
 	wp_clear_scheduled_hook( 'dnbfs_cleanup' );
+	wp_clear_scheduled_hook( 'dnbfs_backfill_orders' );
 }

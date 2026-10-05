@@ -42,6 +42,31 @@ function dn_bfs_data_stats() {
 	);
 }
 
+/**
+ * WooCommerce order import status for Settings → Data: the background import
+ * state, how many orders WooCommerce has (statuses the import covers) and how
+ * many order events are recorded.
+ */
+function dn_bfs_order_import_stats() {
+	global $wpdb;
+
+	$found = wc_get_orders(
+		array(
+			'type'     => 'shop_order',
+			'status'   => dn_bfs_backfill_statuses(),
+			'limit'    => 1,
+			'return'   => 'ids',
+			'paginate' => true,
+		)
+	);
+
+	return array(
+		'state'          => dn_bfs_backfill_state(),
+		'orders_total'   => is_object( $found ) && isset( $found->total ) ? (int) $found->total : 0,
+		'orders_tracked' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . dn_bfs_table( 'events' ) . " WHERE type = 'order'" ),
+	);
+}
+
 function dn_bfs_reaggregate_range( $start, $end ) {
 	if ( ! dn_bfs_valid_date_string( $start ) || ! dn_bfs_valid_date_string( $end ) || $start > $end ) {
 		return dn_bfs_request_error( 'invalid_date', __( 'Use valid start and end dates in YYYY-MM-DD format.', 'dn-burst-funnel-stats' ) );
@@ -99,6 +124,9 @@ function dn_bfs_purge_all_data( $confirm ) {
 	foreach ( array( 'dnbfs_last_aggregated_date', 'dnbfs_aggregate_last_error' ) as $option ) {
 		delete_option( $option );
 	}
+
+	// Order events are gone, so a later "Import past orders" starts over (it skips by event, not by order meta).
+	dn_bfs_backfill_reset();
 
 	dn_bfs_bump_cache_generation();
 

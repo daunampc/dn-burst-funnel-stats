@@ -34,14 +34,14 @@ foreach ( $dn_bfs_option_patterns as $dn_bfs_pattern ) {
 
 wp_cache_flush();
 
-foreach ( array( 'dnbfs_aggregate', 'dnbfs_cleanup', 'dn_burst_funnel_stats_refresh_cache' ) as $dn_bfs_hook ) {
+foreach ( array( 'dnbfs_aggregate', 'dnbfs_cleanup', 'dnbfs_backfill_orders', 'dn_burst_funnel_stats_refresh_cache' ) as $dn_bfs_hook ) {
 	wp_clear_scheduled_hook( $dn_bfs_hook );
 }
 
 delete_metadata( 'user', 0, 'dnbfs_cards', '', true );
 
 // Order tracking meta, in post storage and (when present) the HPOS meta table.
-$dn_bfs_order_meta = array( '_dnbfs_session_uid', '_dnbfs_visitor_uid' );
+$dn_bfs_order_meta = array( '_dnbfs_session_uid', '_dnbfs_visitor_uid', '_dnbfs_backfilled', '_dnbfs_excluded' );
 
 foreach ( $dn_bfs_order_meta as $dn_bfs_meta_key ) {
 	delete_post_meta_by_key( $dn_bfs_meta_key );
@@ -50,7 +50,7 @@ foreach ( $dn_bfs_order_meta as $dn_bfs_meta_key ) {
 $dn_bfs_hpos_meta = $wpdb->prefix . 'wc_orders_meta';
 
 if ( $dn_bfs_hpos_meta === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $dn_bfs_hpos_meta ) ) ) ) {
-	$wpdb->query( $wpdb->prepare( "DELETE FROM {$dn_bfs_hpos_meta} WHERE meta_key IN (%s, %s)", $dn_bfs_order_meta[0], $dn_bfs_order_meta[1] ) );
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$dn_bfs_hpos_meta} WHERE meta_key IN (" . implode( ', ', array_fill( 0, count( $dn_bfs_order_meta ), '%s' ) ) . ')', $dn_bfs_order_meta ) );
 }
 
 $dn_bfs_uploads = wp_upload_dir( null, false );
