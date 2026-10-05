@@ -425,18 +425,28 @@ function dn_bfs_order_sync_run( $now = null, $deadline = 0, &$more = false ) {
 	$size     = (int) apply_filters( 'dn_bfs_backfill_batch_size', 200 );
 	$inserted = 0;
 
-	// Re-read under the lock: "Import past orders now" may have restarted the import.
+	// Re-read under the lock (bypassing the request's option cache): "Import past
+	// orders now" or "Delete all data" may have restarted the import.
+	dn_bfs_option_cache_forget( 'dnbfs_backfill_state' );
+	dn_bfs_option_cache_forget( 'dnbfs_backfill_cursor' );
+
 	if ( 'done' === dn_bfs_backfill_state()['status'] ) {
 		do {
 			$batch     = dn_bfs_backfill_orders_batch( $size, $now, $deadline, false );
 			$inserted += $batch['inserted'];
 		} while ( ! $batch['done'] && microtime( true ) < $deadline && dn_bfs_backfill_memory_ok() );
 
-		$more               = ! $batch['done'];
-		$state              = dn_bfs_backfill_state();
-		$state['inserted'] += $inserted;
-		$state['last_run']  = dn_bfs_now();
-		update_option( 'dnbfs_backfill_state', $state, false );
+		$more = ! $batch['done'];
+
+		dn_bfs_option_cache_forget( 'dnbfs_backfill_state' );
+		$state = dn_bfs_backfill_state();
+
+		// Only record this run if nobody restarted or reset the import meanwhile.
+		if ( 'done' === $state['status'] ) {
+			$state['inserted'] += $inserted;
+			$state['last_run']  = dn_bfs_now();
+			update_option( 'dnbfs_backfill_state', $state, false );
+		}
 	}
 
 	if ( $inserted > 0 ) {
