@@ -490,9 +490,41 @@ function dn_bfs_aggregate_run( $now = null, $max_days = 31 ) {
 }
 
 function dn_bfs_cron_aggregate() {
-	dn_bfs_reconcile_recent_orders();
-	dn_bfs_aggregate_run();
+	// Untracked orders first, within one shared budget so the aggregate keeps its own.
+	$deadline = microtime( true ) + (int) apply_filters( 'dn_bfs_order_sync_time_budget', 5 );
+	$more     = false;
+	dn_bfs_order_sync_run( null, $deadline, $more );
+	dn_bfs_reconcile_recent_orders( null, $deadline );
+
+	dn_bfs_aggregate_maybe_continue( dn_bfs_aggregate_run(), $more );
 	dn_bfs_purge_expired_cache_transients();
+}
+
+/**
+ * Comes back in 5 minutes instead of an hour while the order sync has orders
+ * left to check, or closed dirty dates remain after a run that made progress
+ * (e.g. years of imported order history).
+ */
+function dn_bfs_aggregate_maybe_continue( $result, $more_orders = false ) {
+	if ( $more_orders ) {
+		wp_schedule_single_event( time() + 5 * MINUTE_IN_SECONDS, 'dnbfs_aggregate' );
+
+		return;
+	}
+
+	if ( empty( $result['ok'] ) || empty( $result['processed'] ) ) {
+		return;
+	}
+
+	$closable = dn_bfs_last_closable_date( dn_bfs_now() );
+
+	foreach ( dn_bfs_get_dirty_dates() as $date ) {
+		if ( $date <= $closable ) {
+			wp_schedule_single_event( time() + 5 * MINUTE_IN_SECONDS, 'dnbfs_aggregate' );
+
+			return;
+		}
+	}
 }
 add_action( 'dnbfs_aggregate', 'dn_bfs_cron_aggregate' );
 

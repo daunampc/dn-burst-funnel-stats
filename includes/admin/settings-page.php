@@ -207,6 +207,11 @@ function dn_bfs_settings_data_task( $task, $post, $files ) {
 
 			return dn_bfs_reaggregate_outcome( $result );
 		case 'import_orders':
+			// A second click must not send a running import back to the first order.
+			if ( 'running' === dn_bfs_backfill_state()['status'] ) {
+				return array( 'tab' => 'data', 'notice' => 'orders_import_running' );
+			}
+
 			dn_bfs_backfill_start();
 
 			return array( 'tab' => 'data', 'notice' => 'orders_import_started' );
@@ -241,6 +246,7 @@ function dn_bfs_settings_notice( $code, $args = array() ) {
 		'reaggregated'     => array( 'success', __( 'The selected days were re-aggregated.', 'dn-burst-funnel-stats' ) ),
 		'purged'           => array( 'success', __( 'All tracking data was deleted.', 'dn-burst-funnel-stats' ) ),
 		'orders_import_started' => array( 'success', __( 'Importing past WooCommerce orders in the background. Daily totals update within the next hours.', 'dn-burst-funnel-stats' ) ),
+		'orders_import_running' => array( 'info', __( 'The order import is already running in the background.', 'dn-burst-funnel-stats' ) ),
 		'imported'         => array( 'success', __( 'Settings imported.', 'dn-burst-funnel-stats' ) ),
 		'geoip_updated'    => array( 'success', __( 'The GeoIP database was updated.', 'dn-burst-funnel-stats' ) ),
 		'confirm_required' => array( 'error', __( 'Type DELETE to confirm.', 'dn-burst-funnel-stats' ) ),
@@ -545,7 +551,7 @@ function dn_bfs_render_settings_orders_panel() {
 	?>
 	<div class="dn-burst-panel">
 		<h2><?php esc_html_e( 'WooCommerce orders', 'dn-burst-funnel-stats' ); ?></h2>
-		<p class="description"><?php esc_html_e( 'Orders placed before the plugin was installed, or created outside the checkout (admin, REST API, mobile app, some payment gateways), are imported with their WooCommerce order attribution. New untracked orders are picked up every hour.', 'dn-burst-funnel-stats' ); ?></p>
+		<p class="description"><?php esc_html_e( 'Orders placed before the plugin was installed, or created outside the checkout (admin, REST API, mobile app, some payment gateways), are imported with their WooCommerce order attribution. New untracked orders are picked up every hour, 15 minutes after they were created.', 'dn-burst-funnel-stats' ); ?></p>
 		<table class="widefat striped">
 			<tbody>
 				<tr><td><?php esc_html_e( 'Import status', 'dn-burst-funnel-stats' ); ?></td><td><?php echo esc_html( isset( $labels[ $state['status'] ] ) ? $labels[ $state['status'] ] : $state['status'] ); ?></td></tr>

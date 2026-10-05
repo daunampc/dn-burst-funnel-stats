@@ -6,13 +6,18 @@
  * attribution for their channel, source, campaign and device.
  *
  * A one-off background import walks every order by id (`dnbfs_backfill_orders`
- * cron, state in `dnbfs_backfill_state`, cursor in `dnbfs_backfill_cursor`); an
- * hourly reconcile pass picks up orders of the last 3 days that are still
- * untracked 15 minutes after they were created.
+ * cron, state in `dnbfs_backfill_state`, cursor in `dnbfs_backfill_cursor`).
+ * Once it is done, the hourly aggregate cron continues the same id cursor, so
+ * every newer order id is checked (backdated admin orders, imported orders and
+ * orders created while WP-Cron was down included), and also re-checks orders of
+ * the last 3 days (Store API orders keep the lower id of their checkout draft).
+ * Both stop at orders younger than 15 minutes so the checkout hooks get the
+ * first chance to attach the tracked session. Disabled tracking pauses all of it.
  *
  * Orders are skipped when they already have an order event (so re-running is
- * safe and `_dnbfs_backfilled` is informational only) or carry
- * `_dnbfs_excluded` (placed by an excluded role or IP at checkout).
+ * safe) or carry `_dnbfs_excluded` (placed by an excluded role or IP at
+ * checkout). Nothing here ever writes to the order: on HPOS any order meta
+ * write re-saves the order (date_modified, webhooks, integrations re-sync).
  *
  * @package DN_Burst_Funnel_Stats
  */
@@ -57,8 +62,8 @@ function dn_bfs_backfill_order_ids( $args ) {
 			array(
 				'field'   => 'id',
 				'value'   => $after,
+				// No 'type': NUMERIC becomes CAST(id AS SIGNED), which cannot use the primary key.
 				'compare' => '>',
-				'type'    => 'NUMERIC',
 			),
 		);
 	}
@@ -140,66 +145,97 @@ function dn_bfs_backfill_order( $order ) {
 		$time
 	);
 
-	if ( $inserted <= 0 ) {
-		return 0;
-	}
-
-	$order->update_meta_data( '_dnbfs_backfilled', 1 );
-	$order->save_meta_data();
-
-	return $time;
+	return $inserted > 0 ? $time : 0;
 }
 
 /**
- * Records the untracked orders among `$order_ids`.
+ * Records the untracked orders among `$order_ids` (ascending), in order.
  *
- * @param callable|null $include Optional filter: receives the WC_Order, returns false to skip it.
- * @return array{inserted: int, dates: array} Dates (site timezone) that got new events.
+ * @param callable|null $include  Optional: receives the WC_Order and returns true to record it,
+ *                                false to skip it, or null to stop here (this and later ids are left).
+ * @param float         $deadline Optional microtime(true) after which no further order is loaded.
+ * @return array{inserted: int, dates: array, handled: int, last: int, stopped: string} `handled` ids
+ *               (recorded, already tracked or skipped) up to id `last`; `stopped` is 'wait' (callback),
+ *               'deadline' or '' (all ids handled).
  */
-function dn_bfs_backfill_order_ids_insert( $order_ids, $include = null ) {
+function dn_bfs_backfill_order_ids_insert( $order_ids, $include = null, $deadline = 0 ) {
 	$tracked  = dn_bfs_backfill_tracked_ids( $order_ids );
 	$inserted = 0;
 	$dates    = array();
+	$handled  = 0;
+	$last     = 0;
+	$stopped  = '';
 
 	foreach ( $order_ids as $order_id ) {
-		if ( isset( $tracked[ $order_id ] ) ) {
-			continue;
+		if ( ! isset( $tracked[ $order_id ] ) ) {
+			if ( $deadline > 0 && microtime( true ) >= $deadline ) {
+				$stopped = 'deadline';
+				break;
+			}
+
+			$order = wc_get_order( $order_id );
+			$keep  = $order instanceof WC_Order && null !== $include ? call_user_func( $include, $order ) : $order instanceof WC_Order;
+
+			if ( null === $keep ) {
+				$stopped = 'wait';
+				break;
+			}
+
+			$time = $keep ? dn_bfs_backfill_order( $order ) : 0;
+
+			if ( $time > 0 ) {
+				$inserted++;
+				$dates[ wp_date( 'Y-m-d', $time ) ] = true;
+			}
 		}
 
-		$order = wc_get_order( $order_id );
-
-		if ( ! $order instanceof WC_Order || ( null !== $include && ! call_user_func( $include, $order ) ) ) {
-			continue;
-		}
-
-		$time = dn_bfs_backfill_order( $order );
-
-		if ( $time > 0 ) {
-			$inserted++;
-			$dates[ wp_date( 'Y-m-d', $time ) ] = true;
-		}
+		$last = $order_id;
+		$handled++;
 	}
 
 	foreach ( array_keys( $dates ) as $date ) {
 		dn_bfs_mark_dirty_date( $date );
 	}
 
-	if ( $inserted > 0 ) {
-		dn_bfs_bump_cache_generation();
-	}
-
 	return array(
 		'inserted' => $inserted,
 		'dates'    => array_keys( $dates ),
+		'handled'  => $handled,
+		'last'     => $last,
+		'stopped'  => $stopped,
 	);
 }
 
 /**
+ * Cursor callback: an order created less than 15 minutes before `$now` stops
+ * the walk, so the checkout hooks can record it with its tracked session first.
+ */
+function dn_bfs_backfill_settled_callback( $now ) {
+	$settle = (int) $now - 15 * MINUTE_IN_SECONDS;
+
+	return function ( $order ) use ( $settle, $now ) {
+		$created = $order->get_date_created();
+		$created = $created ? (int) $created->getTimestamp() : 0;
+
+		// A future creation date would block the cursor for good; record it instead.
+		return $created > $settle && $created <= (int) $now + HOUR_IN_SECONDS ? null : true;
+	};
+}
+
+/**
  * One page of the import, from the stored cursor (last processed order id).
+ * Stops at the first untracked order younger than 15 minutes (done: newer
+ * orders are left to the hourly sync). A failed order query is not "done".
  *
+ * @param int      $limit    Orders per page.
+ * @param int|null $now      Current time, for the 15-minute guard.
+ * @param float    $deadline Optional microtime(true) after which no further order is loaded.
+ * @param bool     $bump     Reset the report cache when orders were recorded.
  * @return array{processed: int, inserted: int, done: bool}
  */
-function dn_bfs_backfill_orders_batch( $limit = 200 ) {
+function dn_bfs_backfill_orders_batch( $limit = 200, $now = null, $deadline = 0, $bump = true ) {
+	global $wpdb;
+
 	$limit  = max( 1, (int) $limit );
 	$cursor = (int) get_option( 'dnbfs_backfill_cursor', 0 );
 	$ids    = dn_bfs_backfill_order_ids(
@@ -208,16 +244,29 @@ function dn_bfs_backfill_orders_batch( $limit = 200 ) {
 			'dnbfs_after_id' => $cursor,
 		)
 	);
-	$result = empty( $ids ) ? array( 'inserted' => 0 ) : dn_bfs_backfill_order_ids_insert( $ids );
 
-	if ( ! empty( $ids ) ) {
-		update_option( 'dnbfs_backfill_cursor', max( $ids ), false );
+	if ( empty( $ids ) ) {
+		return array(
+			'processed' => 0,
+			'inserted'  => 0,
+			'done'      => '' === (string) $wpdb->last_error,
+		);
+	}
+
+	$result = dn_bfs_backfill_order_ids_insert( $ids, dn_bfs_backfill_settled_callback( null === $now ? dn_bfs_now() : $now ), $deadline );
+
+	if ( $result['last'] > $cursor ) {
+		update_option( 'dnbfs_backfill_cursor', $result['last'], false );
+	}
+
+	if ( $bump && $result['inserted'] > 0 ) {
+		dn_bfs_bump_cache_generation();
 	}
 
 	return array(
-		'processed' => count( $ids ),
-		'inserted'  => (int) $result['inserted'],
-		'done'      => count( $ids ) < $limit,
+		'processed' => $result['handled'],
+		'inserted'  => $result['inserted'],
+		'done'      => 'wait' === $result['stopped'] || ( '' === $result['stopped'] && count( $ids ) < $limit ),
 	);
 }
 
@@ -237,6 +286,22 @@ function dn_bfs_backfill_state() {
 	);
 }
 
+function dn_bfs_backfill_tracking_enabled() {
+	$settings = dn_bfs_get_tracking_settings();
+
+	return ! empty( $settings['tracking_enabled'] );
+}
+
+/**
+ * False once the request uses 70% of the PHP memory limit (loaded orders stay
+ * in memory when the object cache cannot flush its runtime cache).
+ */
+function dn_bfs_backfill_memory_ok() {
+	$limit = wp_convert_hr_to_bytes( (string) ini_get( 'memory_limit' ) );
+
+	return $limit <= 0 || memory_get_usage() < 0.7 * $limit;
+}
+
 /**
  * Resets the cursor and queues the background import.
  */
@@ -252,6 +317,7 @@ function dn_bfs_backfill_start() {
 
 	update_option( 'dnbfs_backfill_cursor', 0, false );
 	update_option( 'dnbfs_backfill_state', $state, false );
+	delete_transient( 'dnbfs_order_counts' );
 	wp_clear_scheduled_hook( 'dnbfs_backfill_orders' );
 	wp_schedule_single_event( time(), 'dnbfs_backfill_orders' );
 
@@ -262,35 +328,40 @@ function dn_bfs_backfill_reset() {
 	wp_clear_scheduled_hook( 'dnbfs_backfill_orders' );
 	delete_option( 'dnbfs_backfill_cursor' );
 	delete_option( 'dnbfs_backfill_state' );
+	delete_transient( 'dnbfs_order_counts' );
 }
 
 /**
  * Runs import batches until done or the `dn_bfs_backfill_time_budget`
  * (seconds, default 20) is spent, then reschedules itself a minute later.
+ * Paused (not rescheduled) while tracking is disabled; dn_bfs_backfill_maybe_resume()
+ * queues it again once tracking is back on.
  *
  * @return array Backfill state after the run.
  */
 function dn_bfs_backfill_run() {
 	$state = dn_bfs_backfill_state();
 
-	if ( 'running' !== $state['status'] || ! dn_bfs_store_lock( 'order_backfill' ) ) {
+	if ( 'running' !== $state['status'] || ! dn_bfs_backfill_tracking_enabled() || ! dn_bfs_store_lock( 'order_backfill' ) ) {
 		return $state;
 	}
 
-	$started = microtime( true );
-	$budget  = (int) apply_filters( 'dn_bfs_backfill_time_budget', 20 );
-	$size    = (int) apply_filters( 'dn_bfs_backfill_batch_size', 200 );
+	$started  = microtime( true );
+	$budget   = (int) apply_filters( 'dn_bfs_backfill_time_budget', 20 );
+	$size     = (int) apply_filters( 'dn_bfs_backfill_batch_size', 200 );
+	$inserted = 0;
 
 	do {
-		$batch               = dn_bfs_backfill_orders_batch( $size );
+		$batch               = dn_bfs_backfill_orders_batch( $size, null, 0, false );
 		$state['processed'] += $batch['processed'];
 		$state['inserted']  += $batch['inserted'];
+		$inserted           += $batch['inserted'];
 
 		// Loaded orders pile up in the in-memory object cache; drop them between batches.
 		if ( function_exists( 'wp_cache_flush_runtime' ) && wp_cache_supports( 'flush_runtime' ) ) {
 			wp_cache_flush_runtime();
 		}
-	} while ( ! $batch['done'] && microtime( true ) - $started < $budget );
+	} while ( ! $batch['done'] && microtime( true ) - $started < $budget && dn_bfs_backfill_memory_ok() );
 
 	$state['last_run'] = dn_bfs_now();
 
@@ -300,6 +371,10 @@ function dn_bfs_backfill_run() {
 
 		// Rebuild the dates the import marked dirty without waiting for the hourly run.
 		wp_schedule_single_event( time() + MINUTE_IN_SECONDS, 'dnbfs_aggregate' );
+	}
+
+	if ( $inserted > 0 ) {
+		dn_bfs_bump_cache_generation();
 	}
 
 	update_option( 'dnbfs_backfill_state', $state, false );
@@ -315,27 +390,77 @@ add_action( 'dnbfs_backfill_orders', 'dn_bfs_backfill_run' );
 
 /**
  * Re-queues a running import whose cron event was lost (e.g. the plugin was
- * deactivated mid-import).
+ * deactivated mid-import, or tracking was disabled for a while).
  */
 function dn_bfs_backfill_maybe_resume() {
 	$state = dn_bfs_backfill_state();
 
-	if ( 'running' === $state['status'] && ! wp_next_scheduled( 'dnbfs_backfill_orders' ) ) {
+	if ( 'running' === $state['status'] && dn_bfs_backfill_tracking_enabled() && ! wp_next_scheduled( 'dnbfs_backfill_orders' ) ) {
 		wp_schedule_single_event( time() + MINUTE_IN_SECONDS, 'dnbfs_backfill_orders' );
 	}
 }
 
 /**
- * Hourly safety net: records orders created in the last 3 days that are still
- * untracked once they and their last change are 15 minutes old, so the checkout
- * hooks always get the first chance to attach the tracked session.
+ * Hourly, once the import is done: continues the import's id cursor so every
+ * newer order id is checked (backdated or imported orders, orders created while
+ * WP-Cron was down), stopping at the first untracked order younger than 15
+ * minutes; the next run resumes there. Ids come from the primary key, only
+ * untracked orders are loaded, and the run ends at `$deadline` (default: the
+ * `dn_bfs_order_sync_time_budget` filter, 5 seconds from now).
  *
+ * @param int|null $now      Current time.
+ * @param float    $deadline Optional microtime(true) end of the run.
+ * @param bool     $more     Set to true when the run ended with orders left to check.
  * @return int Orders recorded.
  */
-function dn_bfs_reconcile_recent_orders( $now = null ) {
-	$settings = dn_bfs_get_tracking_settings();
+function dn_bfs_order_sync_run( $now = null, $deadline = 0, &$more = false ) {
+	$more = false;
 
-	if ( empty( $settings['tracking_enabled'] ) ) {
+	if ( ! dn_bfs_backfill_tracking_enabled() || 'done' !== dn_bfs_backfill_state()['status'] || ! dn_bfs_store_lock( 'order_backfill' ) ) {
+		return 0;
+	}
+
+	$now      = null === $now ? dn_bfs_now() : (int) $now;
+	$deadline = $deadline > 0 ? (float) $deadline : microtime( true ) + (int) apply_filters( 'dn_bfs_order_sync_time_budget', 5 );
+	$size     = (int) apply_filters( 'dn_bfs_backfill_batch_size', 200 );
+	$inserted = 0;
+
+	// Re-read under the lock: "Import past orders now" may have restarted the import.
+	if ( 'done' === dn_bfs_backfill_state()['status'] ) {
+		do {
+			$batch     = dn_bfs_backfill_orders_batch( $size, $now, $deadline, false );
+			$inserted += $batch['inserted'];
+		} while ( ! $batch['done'] && microtime( true ) < $deadline && dn_bfs_backfill_memory_ok() );
+
+		$more               = ! $batch['done'];
+		$state              = dn_bfs_backfill_state();
+		$state['inserted'] += $inserted;
+		$state['last_run']  = dn_bfs_now();
+		update_option( 'dnbfs_backfill_state', $state, false );
+	}
+
+	if ( $inserted > 0 ) {
+		dn_bfs_bump_cache_generation();
+	}
+
+	dn_bfs_store_unlock( 'order_backfill' );
+
+	return $inserted;
+}
+
+/**
+ * Hourly safety net for orders the id cursor has already passed: records
+ * orders created in the last 3 days that are still untracked once they and
+ * their last change are 15 minutes old (Store API orders keep the id of their
+ * checkout draft, which the import does not list), so the checkout hooks always
+ * get the first chance to attach the tracked session.
+ *
+ * @param int|null $now      Current time.
+ * @param float    $deadline Optional microtime(true) after which no further order is loaded.
+ * @return int Orders recorded.
+ */
+function dn_bfs_reconcile_recent_orders( $now = null, $deadline = 0 ) {
+	if ( ! dn_bfs_backfill_tracking_enabled() ) {
 		return 0;
 	}
 
@@ -358,8 +483,13 @@ function dn_bfs_reconcile_recent_orders( $now = null ) {
 			$modified = $order->get_date_modified();
 
 			return ! $modified || $modified->getTimestamp() <= $settle;
-		}
+		},
+		$deadline
 	);
+
+	if ( $result['inserted'] > 0 ) {
+		dn_bfs_bump_cache_generation();
+	}
 
 	return (int) $result['inserted'];
 }

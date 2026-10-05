@@ -41,7 +41,7 @@ foreach ( array( 'dnbfs_aggregate', 'dnbfs_cleanup', 'dnbfs_backfill_orders', 'd
 delete_metadata( 'user', 0, 'dnbfs_cards', '', true );
 
 // Order tracking meta, in post storage and (when present) the HPOS meta table.
-$dn_bfs_order_meta = array( '_dnbfs_session_uid', '_dnbfs_visitor_uid', '_dnbfs_backfilled', '_dnbfs_excluded' );
+$dn_bfs_order_meta = array( '_dnbfs_session_uid', '_dnbfs_visitor_uid', '_dnbfs_excluded' );
 
 foreach ( $dn_bfs_order_meta as $dn_bfs_meta_key ) {
 	delete_post_meta_by_key( $dn_bfs_meta_key );

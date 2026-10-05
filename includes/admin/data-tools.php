@@ -45,26 +45,32 @@ function dn_bfs_data_stats() {
 /**
  * WooCommerce order import status for Settings → Data: the background import
  * state, how many orders WooCommerce has (statuses the import covers) and how
- * many order events are recorded.
+ * many order events are recorded (these include events of orders deleted
+ * since). Both counts scan whole tables, so they are cached for 5 minutes.
  */
 function dn_bfs_order_import_stats() {
 	global $wpdb;
 
-	$found = wc_get_orders(
-		array(
-			'type'     => 'shop_order',
-			'status'   => dn_bfs_backfill_statuses(),
-			'limit'    => 1,
-			'return'   => 'ids',
-			'paginate' => true,
-		)
-	);
+	$counts = get_transient( 'dnbfs_order_counts' );
 
-	return array(
-		'state'          => dn_bfs_backfill_state(),
-		'orders_total'   => is_object( $found ) && isset( $found->total ) ? (int) $found->total : 0,
-		'orders_tracked' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . dn_bfs_table( 'events' ) . " WHERE type = 'order'" ),
-	);
+	if ( ! is_array( $counts ) ) {
+		$found  = wc_get_orders(
+			array(
+				'type'     => 'shop_order',
+				'status'   => dn_bfs_backfill_statuses(),
+				'limit'    => 1,
+				'return'   => 'ids',
+				'paginate' => true,
+			)
+		);
+		$counts = array(
+			'orders_total'   => is_object( $found ) && isset( $found->total ) ? (int) $found->total : 0,
+			'orders_tracked' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . dn_bfs_table( 'events' ) . " WHERE type = 'order'" ),
+		);
+		set_transient( 'dnbfs_order_counts', $counts, 5 * MINUTE_IN_SECONDS );
+	}
+
+	return array_merge( array( 'state' => dn_bfs_backfill_state() ), $counts );
 }
 
 function dn_bfs_reaggregate_range( $start, $end ) {
