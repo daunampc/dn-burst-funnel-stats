@@ -205,14 +205,19 @@ function dn_bfs_api_range( $params ) {
 	return dn_bfs_calculate_date_range( 'custom', $params['compare'], $params['start'], $params['end'] );
 }
 
-function dn_bfs_api_envelope( $data, $params, $estimated ) {
+/**
+ * `traffic_available` is false for orders-only results: combined filters over
+ * dates without raw tracking data, where traffic metrics are 0.
+ */
+function dn_bfs_api_envelope( $data, $params, $estimated, $traffic_available = true ) {
 	return array(
 		'data' => $data,
 		'meta' => array(
-			'timezone'  => wp_timezone_string(),
-			'currency'  => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : '',
-			'range'     => isset( $params['start'] ) ? array( 'start' => $params['start'], 'end' => $params['end'] ) : null,
-			'estimated' => (bool) $estimated,
+			'timezone'          => wp_timezone_string(),
+			'currency'          => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : '',
+			'range'             => isset( $params['start'] ) ? array( 'start' => $params['start'], 'end' => $params['end'] ) : null,
+			'estimated'         => (bool) $estimated,
+			'traffic_available' => (bool) $traffic_available,
 		),
 	);
 }
@@ -270,7 +275,8 @@ function dn_bfs_api_endpoint_summary( $params, $key, $now ) {
 			'previous_range' => $previous_range,
 		),
 		$params,
-		$report['estimated']
+		$report['estimated'],
+		$report['traffic_available']
 	);
 }
 
@@ -289,7 +295,8 @@ function dn_bfs_api_endpoint_timeseries( $params, $key, $now ) {
 			'series' => $report['series'],
 		),
 		$params,
-		$report['estimated']
+		$report['estimated'],
+		$report['traffic_available']
 	);
 }
 
@@ -321,7 +328,8 @@ function dn_bfs_api_endpoint_breakdown( $params, $key, $now ) {
 			'pages'     => (int) ceil( $report['total'] / $params['limit'] ),
 		),
 		$params,
-		$report['estimated']
+		$report['estimated'],
+		$report['traffic_available']
 	);
 }
 
@@ -334,7 +342,7 @@ function dn_bfs_api_endpoint_funnel( $params, $key, $now ) {
 		return $summary;
 	}
 
-	return dn_bfs_api_envelope( array( 'steps' => dn_bfs_report_funnel_steps( $summary['current'] ) ), $params, $summary['estimated'] );
+	return dn_bfs_api_envelope( array( 'steps' => dn_bfs_report_funnel_steps( $summary['current'] ) ), $params, $summary['estimated'], $summary['traffic_available'] );
 }
 
 function dn_bfs_api_endpoint_realtime( $params, $key, $now ) {

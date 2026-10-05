@@ -126,6 +126,14 @@ function dn_bfs_derived_metric_names() {
 	return array( 'returning_visitors', 'bounce_rate', 'avg_duration', 'pages_per_session', 'conversion_rate', 'aov', 'aoi' );
 }
 
+/**
+ * Metrics that need raw tracking data (sessions, pageviews, funnel events):
+ * every stored and derived metric except order metrics and aov/aoi.
+ */
+function dn_bfs_traffic_metric_names() {
+	return array_values( array_diff( dn_bfs_metric_names(), dn_bfs_order_columns(), array( 'aov', 'aoi' ) ) );
+}
+
 function dn_bfs_compare_modes() {
 	return array( 'none', 'previous_period', 'previous_year' );
 }

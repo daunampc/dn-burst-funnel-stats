@@ -93,7 +93,7 @@ function dn_bfs_api_openapi_document() {
 			'in'          => 'query',
 			'style'       => 'deepObject',
 			'explode'     => true,
-			'description' => 'filter[dimension]=value. Dimensions: ' . implode( ', ', dn_bfs_filter_dimensions() ) . '. Two or more filters only work while raw data is kept (422 filter_out_of_retention otherwise).',
+			'description' => 'filter[dimension]=value. Dimensions: ' . implode( ', ', dn_bfs_filter_dimensions() ) . '. Two or more filters (or a filter on stats/breakdown) for a range that starts before raw_available_from return order metrics only: traffic metrics are 0 and meta.traffic_available is false. Breakdowns by a dimension that order events do not carry (page, entry, exit, referrer, browser, os, city) answer 422 filter_out_of_retention instead.',
 			'schema'      => array(
 				'type'                 => 'object',
 				'properties'           => array_fill_keys( dn_bfs_filter_dimensions(), $string ),
@@ -256,12 +256,13 @@ function dn_bfs_api_openapi_document() {
 			'schemas'         => array(
 				'Meta' => array(
 					'type'       => 'object',
-					'required'   => array( 'timezone', 'currency', 'range', 'estimated' ),
+					'required'   => array( 'timezone', 'currency', 'range', 'estimated', 'traffic_available' ),
 					'properties' => array(
-						'timezone'  => $string,
-						'currency'  => $string,
-						'range'     => $period,
-						'estimated' => array( 'type' => 'boolean', 'description' => 'True when visitor counts were summed per day.' ),
+						'timezone'          => $string,
+						'currency'          => $string,
+						'range'             => $period,
+						'estimated'         => array( 'type' => 'boolean', 'description' => 'True when visitor counts were summed per day.' ),
+						'traffic_available' => array( 'type' => 'boolean', 'description' => 'False for orders-only results (combined filters over dates without raw tracking data): order and revenue metrics cover the whole range, traffic metrics (' . implode( ', ', dn_bfs_traffic_metric_names() ) . ') are 0 and their summary change is 0.' ),
 					),
 				),
 			),

@@ -4,7 +4,10 @@
  *
  * Days the aggregator has finished (up to `dnbfs_last_aggregated_date`) come
  * from dnbfs_daily; later days (today, or days the aggregator has not reached
- * yet) and multi-filter queries come from the raw engine.
+ * yet) and multi-filter queries come from the raw engine. Multi-filter queries
+ * (and filtered breakdowns) that start before the raw-data window are answered
+ * orders-only from order events, with `traffic_available` false and traffic
+ * metrics 0; every result carries `traffic_available`.
  *
  * @package DN_Burst_Funnel_Stats
  */
@@ -30,24 +33,62 @@ function dn_bfs_bump_cache_generation() {
 	update_option( 'dnbfs_cache_generation', dn_bfs_cache_generation() + 1 );
 }
 
-function dn_bfs_report_raw_rows( $start, $end, $dimension, $filters ) {
+/**
+ * Report rows from `$source` (dn_bfs_raw_rows or dn_bfs_raw_order_rows), cached
+ * for dn_bfs_report_cache_ttl() seconds. Order-only rows get their own keys.
+ */
+function dn_bfs_report_cached_rows( $source, $start, $end, $dimension, $filters ) {
 	$ttl = dn_bfs_report_cache_ttl();
 
 	if ( $ttl <= 0 ) {
-		return dn_bfs_raw_rows( $start, $end, $dimension, $filters );
+		return call_user_func( $source, $start, $end, $dimension, $filters );
 	}
 
-	$key    = 'dnbfs_r_' . md5( wp_json_encode( array( dn_bfs_cache_generation(), (int) $start, (int) floor( $end / $ttl ), $dimension, dn_bfs_sanitize_filters( $filters ) ) ) );
+	$parts = array( dn_bfs_cache_generation(), (int) $start, (int) floor( $end / $ttl ), $dimension, dn_bfs_sanitize_filters( $filters ) );
+
+	if ( 'dn_bfs_raw_rows' !== $source ) {
+		$parts[] = $source;
+	}
+
+	$key    = 'dnbfs_r_' . md5( wp_json_encode( $parts ) );
 	$cached = get_transient( $key );
 
 	if ( is_array( $cached ) ) {
 		return $cached;
 	}
 
-	$rows = dn_bfs_raw_rows( $start, $end, $dimension, $filters );
+	$rows = call_user_func( $source, $start, $end, $dimension, $filters );
 	set_transient( $key, $rows, $ttl );
 
 	return $rows;
+}
+
+function dn_bfs_report_raw_rows( $start, $end, $dimension, $filters ) {
+	return dn_bfs_report_cached_rows( 'dn_bfs_raw_rows', $start, $end, $dimension, $filters );
+}
+
+/**
+ * Order metrics only (traffic metrics stay 0), from order events. Cleanup keeps
+ * order events forever and they carry their own attribution, so these rows work
+ * for any range and filter combination.
+ */
+function dn_bfs_report_order_rows( $start, $end, $dimension, $filters ) {
+	return dn_bfs_report_cached_rows( 'dn_bfs_raw_order_rows', $start, $end, $dimension, $filters );
+}
+
+/**
+ * Sort metric for a breakdown. Without traffic data, traffic metrics are all 0,
+ * so rows are sorted by orders instead.
+ */
+function dn_bfs_report_breakdown_orderby( $orderby, $dimension, $traffic_available ) {
+	$allowed = array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() );
+	$orderby = in_array( $orderby, $allowed, true ) ? $orderby : ( 'product' === $dimension ? 'product_views' : 'pageviews' );
+
+	if ( ! $traffic_available && in_array( $orderby, dn_bfs_traffic_metric_names(), true ) ) {
+		$orderby = 'orders';
+	}
+
+	return $orderby;
 }
 
 function dn_bfs_report_error_out_of_retention() {
@@ -192,14 +233,22 @@ function dn_bfs_report_period_metrics( $start_ts, $end_ts, $filters, $now ) {
 
 	if ( $period['start_date'] > $period['today'] ) {
 		return array(
-			'metrics'   => dn_bfs_derive_metrics( $metrics ),
-			'estimated' => false,
+			'metrics'           => dn_bfs_derive_metrics( $metrics ),
+			'estimated'         => false,
+			'traffic_available' => true,
 		);
 	}
 
 	if ( count( $filters ) > 1 ) {
+		// Beyond the raw window only order events are left: orders-only (spec 8.3).
 		if ( ! $in_retention ) {
-			return dn_bfs_report_error_out_of_retention();
+			$rows = dn_bfs_report_order_rows( $period['start_ts'], $period['end_ts'], 'total', $filters );
+
+			return array(
+				'metrics'           => dn_bfs_derive_metrics( isset( $rows[''] ) ? $rows[''] : $metrics ),
+				'estimated'         => false,
+				'traffic_available' => false,
+			);
 		}
 
 		$rows    = dn_bfs_report_raw_rows( $period['start_ts'], $period['end_ts'], 'total', $filters );
@@ -224,8 +273,9 @@ function dn_bfs_report_period_metrics( $start_ts, $end_ts, $filters, $now ) {
 	}
 
 	return array(
-		'metrics'   => dn_bfs_derive_metrics( $metrics ),
-		'estimated' => $estimated,
+		'metrics'           => dn_bfs_derive_metrics( $metrics ),
+		'estimated'         => $estimated,
+		'traffic_available' => true,
 	);
 }
 
@@ -247,16 +297,25 @@ function dn_bfs_report_summary( $range, $filters = array(), $now = null ) {
 			return $previous;
 		}
 
+		$traffic = dn_bfs_traffic_metric_names();
+
 		foreach ( $current['metrics'] as $key => $value ) {
-			$change[ $key ] = dn_bfs_percent_change( $value, $previous['metrics'][ $key ] );
+			// No traffic change against (or from) a period without traffic data.
+			$withheld       = ( ! $current['traffic_available'] || ! $previous['traffic_available'] ) && in_array( $key, $traffic, true );
+			$change[ $key ] = $withheld ? 0.0 : dn_bfs_percent_change( $value, $previous['metrics'][ $key ] );
 		}
 	}
 
+	$previous_traffic = null === $previous ? null : $previous['traffic_available'];
+
 	return array(
-		'current'   => $current['metrics'],
-		'previous'  => null === $previous ? null : $previous['metrics'],
-		'change'    => $change,
-		'estimated' => $current['estimated'] || ( null !== $previous && $previous['estimated'] ),
+		'current'                    => $current['metrics'],
+		'previous'                   => null === $previous ? null : $previous['metrics'],
+		'change'                     => $change,
+		'estimated'                  => $current['estimated'] || ( null !== $previous && $previous['estimated'] ),
+		'traffic_available'          => $current['traffic_available'] && false !== $previous_traffic,
+		'current_traffic_available'  => $current['traffic_available'],
+		'previous_traffic_available' => $previous_traffic,
 	);
 }
 
@@ -269,15 +328,16 @@ function dn_bfs_report_timeseries( $range, $metrics, $filters = array(), $now = 
 	$last    = $period['end_date'] < $period['today'] ? $period['end_date'] : $period['today'];
 	$labels  = dn_bfs_dates_between( $period['start_date'], $last );
 	$by_day  = array();
+	$traffic = true;
 
 	if ( count( $filters ) > 1 ) {
-		if ( $period['start_date'] < dn_bfs_raw_available_from( $now ) ) {
-			return dn_bfs_report_error_out_of_retention();
-		}
+		// Beyond the raw window only order events are left: orders-only (spec 8.3).
+		$traffic = $period['start_date'] >= dn_bfs_raw_available_from( $now );
+		$source  = $traffic ? 'dn_bfs_report_raw_rows' : 'dn_bfs_report_order_rows';
 
 		foreach ( $labels as $date ) {
 			list( $start, $end ) = dn_bfs_day_bounds( $date );
-			$rows                = dn_bfs_report_raw_rows( $start, min( $end, $now + 1 ), 'total', $filters );
+			$rows                = call_user_func( $source, $start, min( $end, $now + 1 ), 'total', $filters );
 			$by_day[ $date ]     = isset( $rows[''] ) ? $rows[''] : dn_bfs_empty_metrics();
 		}
 	} else {
@@ -309,9 +369,10 @@ function dn_bfs_report_timeseries( $range, $metrics, $filters = array(), $now = 
 	}
 
 	return array(
-		'labels'    => $labels,
-		'series'    => $series,
-		'estimated' => count( $filters ) <= 1 && $period['incomplete'],
+		'labels'            => $labels,
+		'series'            => $series,
+		'estimated'         => count( $filters ) <= 1 && $period['incomplete'],
+		'traffic_available' => $traffic,
 	);
 }
 
@@ -336,7 +397,11 @@ function dn_bfs_report_funnel( $range, $filters = array(), $now = null ) {
 		return $summary;
 	}
 
-	return dn_bfs_report_funnel_steps( $summary['current'] );
+	return array(
+		'steps'             => dn_bfs_report_funnel_steps( $summary['current'] ),
+		'estimated'         => $summary['estimated'],
+		'traffic_available' => $summary['traffic_available'],
+	);
 }
 
 /**
@@ -386,13 +451,18 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 	$period    = dn_bfs_report_period( $range['current_start'], $range['current_end'], $now );
 	$rows      = array();
 	$estimated = false;
+	$traffic   = true;
 
 	if ( ! empty( $filters ) ) {
-		if ( $period['start_date'] < dn_bfs_raw_available_from( $now ) ) {
+		if ( $period['start_date'] >= dn_bfs_raw_available_from( $now ) ) {
+			$rows = dn_bfs_report_raw_rows( $period['start_ts'], $period['end_ts'], $dimension, $filters );
+		} elseif ( in_array( $dimension, dn_bfs_order_dimensions(), true ) ) {
+			// Beyond the raw window only order events (and their attribution) are left.
+			$rows    = dn_bfs_report_order_rows( $period['start_ts'], $period['end_ts'], $dimension, $filters );
+			$traffic = false;
+		} else {
 			return dn_bfs_report_error_out_of_retention();
 		}
-
-		$rows = dn_bfs_report_raw_rows( $period['start_ts'], $period['end_ts'], $dimension, $filters );
 	} else {
 		if ( $period['has_daily'] ) {
 			$rows = dn_bfs_daily_breakdown( $period['start_date'], $period['daily_end'], $dimension );
@@ -412,15 +482,14 @@ function dn_bfs_report_breakdown( $range, $dimension, $filters = array(), $order
 		$list[] = array_merge( array( 'dim_value' => (string) $value ), dn_bfs_derive_metrics( $metrics ) );
 	}
 
-	$allowed = array_merge( dn_bfs_metric_columns(), dn_bfs_derived_metric_names() );
-	$orderby = in_array( $orderby, $allowed, true ) ? $orderby : ( 'product' === $dimension ? 'product_views' : 'pageviews' );
-	$list    = dn_bfs_sort_report_rows( $list, $orderby, $order );
-	$limit   = max( 1, min( 500, (int) $limit ) );
+	$list  = dn_bfs_sort_report_rows( $list, dn_bfs_report_breakdown_orderby( $orderby, $dimension, $traffic ), $order );
+	$limit = max( 1, min( 500, (int) $limit ) );
 
 	return array(
-		'rows'      => dn_bfs_report_label_rows( $dimension, array_slice( $list, max( 0, (int) $offset ), $limit ) ),
-		'total'     => count( $list ),
-		'estimated' => $estimated,
+		'rows'              => dn_bfs_report_label_rows( $dimension, array_slice( $list, max( 0, (int) $offset ), $limit ) ),
+		'total'             => count( $list ),
+		'estimated'         => $estimated,
+		'traffic_available' => $traffic,
 	);
 }
 
