@@ -62,6 +62,7 @@ function dn_bfs_dash_channel_labels() {
 		'paid'           => __( 'Paid', 'dn-burst-funnel-stats' ),
 		'email'          => __( 'Email', 'dn-burst-funnel-stats' ),
 		'referral'       => __( 'Referral', 'dn-burst-funnel-stats' ),
+		'admin'          => __( 'Admin', 'dn-burst-funnel-stats' ),
 	);
 }
 

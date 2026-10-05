@@ -305,6 +305,40 @@ function dn_bfs_store_order_event_exists( $order_id ) {
 	return (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM ' . dn_bfs_table( 'events' ) . ' WHERE order_id = %d', (int) $order_id ) );
 }
 
+/**
+ * Moves an order event recorded without a session (session_id 0) onto a
+ * tracked session, copying the session's attribution.
+ *
+ * @return bool True when the event was updated.
+ */
+function dn_bfs_store_attach_order_session( $order_id, $session ) {
+	global $wpdb;
+
+	$events  = dn_bfs_table( 'events' );
+	$time    = (int) $wpdb->get_var( $wpdb->prepare( "SELECT time FROM {$events} WHERE order_id = %d AND session_id = 0", (int) $order_id ) );
+	$updated = $wpdb->query(
+		$wpdb->prepare(
+			"UPDATE {$events} SET session_id = %d, visitor_uid = %s, channel = %s, utm_source = %s, utm_medium = %s, utm_campaign = %s, country = %s, device = %s
+			WHERE order_id = %d AND session_id = 0",
+			(int) $session['id'],
+			(string) $session['visitor_uid'],
+			(string) $session['channel'],
+			(string) $session['utm_source'],
+			(string) $session['utm_medium'],
+			(string) $session['utm_campaign'],
+			(string) $session['country'],
+			(string) $session['device'],
+			(int) $order_id
+		)
+	);
+
+	if ( $updated > 0 && $time > 0 && function_exists( 'dn_bfs_mark_dirty_date' ) ) {
+		dn_bfs_mark_dirty_date( wp_date( 'Y-m-d', $time ) );
+	}
+
+	return $updated > 0;
+}
+
 function dn_bfs_store_find_recent_event( $type, $visitor_uid, $ip_hash, $product_id, $since ) {
 	global $wpdb;
 

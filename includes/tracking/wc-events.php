@@ -170,32 +170,26 @@ add_action( 'woocommerce_add_to_cart', 'dn_bfs_wc_on_add_to_cart', 10, 4 );
 
 /**
  * Builds a session-shaped array from WooCommerce order attribution meta, for
- * orders without a tracked session. session_id is 0, country comes from the
- * billing address and device is ''.
+ * orders without a tracked session (see dn_bfs_wc_attribution_from_meta()).
+ * session_id is 0 and country comes from the billing (else shipping) address.
  */
 function dn_bfs_wc_order_fallback_session( $order, $visitor_uid ) {
-	// WooCommerce stores '(none)' for missing values (e.g. auto-tagged Google Ads clicks).
-	$meta = function ( $key ) use ( $order ) {
-		$value = trim( (string) $order->get_meta( '_wc_order_attribution_utm_' . $key ) );
+	$meta = array( 'created_via' => (string) $order->get_created_via() );
 
-		return '(none)' === $value ? '' : $value;
-	};
-	$utm  = array(
-		'source'     => strtolower( $meta( 'source' ) ),
-		'medium'     => strtolower( $meta( 'medium' ) ),
-		'campaign'   => $meta( 'campaign' ),
-		'paid_click' => false,
-	);
+	foreach ( array( 'source_type', 'utm_source', 'utm_medium', 'utm_campaign', 'referrer', 'session_entry', 'device_type' ) as $key ) {
+		$meta[ $key ] = (string) $order->get_meta( '_wc_order_attribution_' . $key );
+	}
 
-	return array(
-		'id'           => 0,
-		'visitor_uid'  => $visitor_uid,
-		'channel'      => dn_bfs_classify_channel( $utm, '', dn_bfs_site_host() ),
-		'utm_source'   => substr( $utm['source'], 0, 191 ),
-		'utm_medium'   => substr( $utm['medium'], 0, 191 ),
-		'utm_campaign' => substr( $utm['campaign'], 0, 191 ),
-		'country'      => substr( (string) $order->get_billing_country(), 0, 2 ),
-		'device'       => '',
+	$country = (string) $order->get_billing_country();
+	$country = '' === $country ? (string) $order->get_shipping_country() : $country;
+
+	return array_merge(
+		array(
+			'id'          => 0,
+			'visitor_uid' => $visitor_uid,
+			'country'     => substr( strtoupper( $country ), 0, 2 ),
+		),
+		dn_bfs_wc_attribution_from_meta( $meta, dn_bfs_site_host() )
 	);
 }
 
@@ -214,6 +208,12 @@ function dn_bfs_track_order( $order ) {
 	$reason = dn_bfs_guard_check_visitor( $ctx );
 
 	if ( '' !== $reason && ! in_array( $reason, array( 'bot', 'empty_ua' ), true ) ) {
+		if ( in_array( $reason, array( 'excluded_role', 'excluded_ip' ), true ) ) {
+			// Remembered so the order backfill and reconcile pass do not import it later.
+			$order->update_meta_data( '_dnbfs_excluded', $reason );
+			$order->save_meta_data();
+		}
+
 		return dn_bfs_store_result( false, $reason );
 	}
 
@@ -245,6 +245,11 @@ function dn_bfs_track_order( $order ) {
 
 	if ( $inserted <= 0 && ! dn_bfs_store_order_event_exists( $order->get_id() ) ) {
 		return dn_bfs_store_result( false, 'db_error' );
+	}
+
+	if ( $inserted <= 0 && '' !== $sid ) {
+		// The background import or reconcile pass got there first: the tracked session is better attribution.
+		dn_bfs_store_attach_order_session( $order->get_id(), $session );
 	}
 
 	$order->update_meta_data( '_dnbfs_session_uid', $sid );
