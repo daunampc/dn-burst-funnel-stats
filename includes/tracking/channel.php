@@ -217,6 +217,11 @@ function dn_bfs_wc_attribution_value( $meta, $key ) {
  * type, so auto-tagged ad clicks count as paid. Admin and mobile-app orders get
  * the `admin` channel, as do orders created in wp-admin without any attribution meta.
  *
+ * Like tracked sessions, which keep utm_source / utm_medium empty for traffic
+ * without UTM tags, organic, referral and typein orders without an ad click id
+ * get an empty source and medium (WooCommerce stores e.g. google /
+ * organic for them); their channel still comes from the source type and referrer.
+ *
  * @return array{channel: string, utm_source: string, utm_medium: string, utm_campaign: string, device: string}
  */
 function dn_bfs_wc_attribution_from_meta( $meta, $site_host ) {
@@ -239,10 +244,6 @@ function dn_bfs_wc_attribution_from_meta( $meta, $site_host ) {
 		$channel = 'admin';
 		$utm     = array_fill_keys( array( 'source', 'medium', 'campaign' ), '' );
 	} else {
-		if ( in_array( $type, array( 'organic', 'referral' ), true ) && '' === $utm['source'] ) {
-			$utm['source'] = $ref_host;
-		}
-
 		$entry_query = (string) wp_parse_url( dn_bfs_wc_attribution_value( $meta, 'session_entry' ), PHP_URL_QUERY );
 		$entry       = dn_bfs_extract_utm( $entry_query );
 
@@ -275,6 +276,12 @@ function dn_bfs_wc_attribution_from_meta( $meta, $site_host ) {
 		} else {
 			// Unknown or missing source type (orders from before WooCommerce order attribution).
 			$channel = dn_bfs_classify_channel( $utm, $ref_host, $site_host );
+		}
+
+		// 'unknown' / missing types keep their values: WooCommerce only stores real UTM tags for them.
+		if ( ! $utm['paid_click'] && in_array( $type, array( 'organic', 'referral', 'typein' ), true ) ) {
+			$utm['source'] = '';
+			$utm['medium'] = '';
 		}
 	}
 
