@@ -4,7 +4,7 @@ Tags: woocommerce, analytics, funnel, ecommerce, dashboard
 Requires at least: 6.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 3.1.2
+Stable tag: 3.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -130,6 +130,12 @@ Raw hits are aggregated into daily totals every hour. If WP-Cron is disabled, ma
 The plugin updates from GitHub releases. Create a release with a tag such as `v3.0.1` and attach the plugin zip (any `.zip` asset works; its top-level folder must be `dn-burst-funnel-stats/`).
 
 == Changelog ==
+
+= 3.1.3 =
+* Order metrics (Orders / AOV, Items / AOI, Sales / Tip, Paid / Balance, Conversion) now count every WooCommerce order: orders placed before the plugin was installed and orders created outside the checkout (admin, REST API, mobile app, payment gateways or express checkouts that skip the checkout hooks) are recorded too, and they follow the dashboard filters and breakdowns.
+* Past orders are imported automatically once in the background after the update (WP-Cron, about 20 seconds of work per minute until done); daily totals are rebuilt for the affected days, including days older than the raw data retention. An hourly check also records orders of the last 3 days that are still untracked 15 minutes after they were created. Orders placed at checkout by an excluded role or IP are not imported (this is remembered for orders placed from this version on; older orders cannot be told apart and are imported).
+* Better attribution for orders without a tracked session, from WooCommerce order attribution: the source type maps to the channel (UTM tags, Organic search, Referral / Social by referrer, Direct for typed-in visits, a new Admin channel for orders created in wp-admin or the mobile app), the referrer host becomes the source for organic and referral orders, Google Ads and other ad click ids on the landing URL count as paid (with gad_campaignid as the campaign), and the WooCommerce device type fills the device. If a tracked session turns up later for an imported order, its attribution replaces the fallback.
+* Settings → Data has a WooCommerce orders panel with the import status, the number of orders imported, the last run, order counts and an "Import past orders now" button. Deleting all data resets the import.
 
 = 3.1.2 =
 * Ad URLs detects Google Ads auto-tagged clicks (gclid / gbraid / wbraid with gad_campaignid), Microsoft Ads (msclkid), TikTok (ttclid), X (twclid) and LinkedIn (li_fat_id) clicks without utm_* tags: the campaign falls back to utm_id, gad_campaignid, campaign_id or hsa_cam, the source is set from the network and the medium to cpc. A new ad click also starts a new session. fbclid alone is treated as Facebook social traffic, not paid.
